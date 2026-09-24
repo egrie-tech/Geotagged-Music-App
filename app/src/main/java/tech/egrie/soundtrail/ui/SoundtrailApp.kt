@@ -65,6 +65,7 @@ import tech.egrie.soundtrail.PinInput
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.integrations.SpotifyTrack
+import java.io.Serializable
 import java.util.Locale
 
 internal data class PinDraft(
@@ -72,7 +73,9 @@ internal data class PinDraft(
     val title: String = "",
     val artist: String = "",
     val url: String = ""
-)
+) : Serializable {
+    companion object { private const val serialVersionUID = 1L }
+}
 
 private enum class Tab(val label: String) { HOME("Explore"), SEARCH("Search"), PINS("Pins"), CONNECT("Connect") }
 
@@ -97,7 +100,8 @@ internal fun SoundtrailApp(
     onNotice: (String) -> Unit
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    var draft by remember { mutableStateOf<PinDraft?>(null) }
+    // Keep an unfinished pin editor intact across rotation and process recreation.
+    var draft by rememberSaveable { mutableStateOf<PinDraft?>(null) }
     var pendingDelete by remember { mutableStateOf<MusicPin?>(null) }
     val snackbars = remember { SnackbarHostState() }
     LaunchedEffect(messages) { messages.collectLatest { snackbars.showSnackbar(it) } }
