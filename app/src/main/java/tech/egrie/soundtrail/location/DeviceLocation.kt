@@ -39,7 +39,7 @@ class DeviceLocation(private val context: Context) {
         }
         try {
             val last = manager.getLastKnownLocation(provider)
-            if (last != null && System.currentTimeMillis() - last.time in 0..120_000) {
+            if (last != null && System.currentTimeMillis() - last.time in 0L..120_000L) {
                 return@withContext last.toPoint()
             }
             withTimeoutOrNull(15_000L) {

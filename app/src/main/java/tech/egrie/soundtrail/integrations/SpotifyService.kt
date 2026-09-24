@@ -67,7 +67,7 @@ class SpotifyService(context: Context) {
         secrets.remove("pending")
         val pending = JSONObject(saved)
         val age = System.currentTimeMillis() - pending.getLong("createdAt")
-        if (age !in 0..600_000 || uri.getQueryParameter("state") != pending.getString("state") ||
+        if (age !in 0L..600_000L || uri.getQueryParameter("state") != pending.getString("state") ||
             clientId != pending.getString("clientId")
         ) throw SpotifyException("Spotify sign-in expired or could not be verified. Try again.")
 
@@ -97,7 +97,7 @@ class SpotifyService(context: Context) {
 
     suspend fun profileName(): String {
         val json = JSONObject(apiGet("me"))
-        return json.optString("display_name").takeIf { it.isNotBlank() }
+        return json.optString("display_name").takeIf { it.isNotBlank() && it != "null" }
             ?: json.optString("id", "Spotify listener")
     }
 
@@ -240,7 +240,7 @@ class SpotifyService(context: Context) {
     }
 
     private fun form(vararg params: Pair<String, String>): String = params.joinToString("&") { (key, value) ->
-        "${URLEncoder.encode(key, "UTF-8") }=${URLEncoder.encode(value, "UTF-8") }"
+        "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
     }
 
     companion object {
