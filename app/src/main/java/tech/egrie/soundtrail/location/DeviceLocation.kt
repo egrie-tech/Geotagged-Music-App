@@ -31,34 +31,40 @@ class DeviceLocation(private val context: Context) {
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
-        // Network location is faster indoors and may be supplied by microG's location provider.
-        val provider = when {
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-            fine && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-            else -> throw LocationUnavailable("Turn on device location, or enter coordinates manually.")
+        // Network location is faster indoors and may be supplied by microG; GPS is a fallback.
+        val providers = buildList {
+            if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) add(LocationManager.NETWORK_PROVIDER)
+            if (fine && manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER)
+        }
+        if (providers.isEmpty()) {
+            throw LocationUnavailable("Turn on device location, or enter coordinates manually.")
         }
         try {
-            val last = manager.getLastKnownLocation(provider)
+            val last = providers.mapNotNull(manager::getLastKnownLocation).maxByOrNull(Location::getTime)
             if (last != null && System.currentTimeMillis() - last.time in 0L..120_000L) {
                 return@withContext last.toPoint()
             }
             withTimeoutOrNull(15_000L) {
-                suspendCancellableCoroutine<GeoPoint?> { continuation ->
+                suspendCancellableCoroutine<GeoPoint> { continuation ->
                     val listener = object : LocationListener {
                         override fun onLocationChanged(location: Location) {
-                            manager.removeUpdates(this)
+                            runCatching { manager.removeUpdates(this) }
                             if (continuation.isActive) continuation.resume(location.toPoint())
                         }
-                        override fun onProviderDisabled(provider: String) {
-                            manager.removeUpdates(this)
-                            if (continuation.isActive) continuation.resume(null)
-                        }
+                        override fun onProviderDisabled(provider: String) = Unit
                         override fun onProviderEnabled(provider: String) = Unit
                         @Deprecated("Legacy LocationListener callback")
                         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
                     }
-                    continuation.invokeOnCancellation { manager.removeUpdates(listener) }
-                    manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                    continuation.invokeOnCancellation { runCatching { manager.removeUpdates(listener) } }
+                    try {
+                        providers.forEach { provider ->
+                            manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                        }
+                    } catch (e: Exception) {
+                        runCatching { manager.removeUpdates(listener) }
+                        throw e
+                    }
                 }
             } ?: throw LocationUnavailable("Couldn't get a location fix. Try outside or enter coordinates.")
         } catch (_: SecurityException) {
