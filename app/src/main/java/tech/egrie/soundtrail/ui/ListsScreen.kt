@@ -60,6 +60,7 @@ import tech.egrie.soundtrail.automation.AutomationRule
 import tech.egrie.soundtrail.automation.MotionKind
 import tech.egrie.soundtrail.data.Playlist
 import tech.egrie.soundtrail.data.PlaylistItem
+import tech.egrie.soundtrail.integrations.MusicLinkParser
 import java.time.LocalTime
 import java.util.UUID
 
@@ -413,7 +414,7 @@ private fun RuleForm(state: AppState, onNotice: (String) -> Unit, onSave: (Autom
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf<Pair<String, String?>>(
+            listOf<Pair<String, MotionKind?>>(
                 "Any motion" to null,
                 MotionKind.WALKING.label to MotionKind.WALKING,
                 MotionKind.RUNNING.label to MotionKind.RUNNING,
