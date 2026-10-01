@@ -67,6 +67,15 @@ class MainActivity : ComponentActivity() {
                 if (located) startWatch()
                 else model.notify("Location permission is needed to watch for triggers.")
             }
+            // Picking the user's own audio file for a playlist song (imported, plays offline).
+            var importTarget by mutableStateOf<Pair<String, PlaylistItem>?>(null)
+            val audioPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                val (playlistId, item) = importTarget ?: return@rememberLauncherForActivityResult
+                importTarget = null
+                if (uri != null) model.attachLocalAudio(uri, playlistId, item.id)
+            }
             val toggleWatch: (Boolean) -> Unit = { enable ->
                 if (!enable) {
                     LocationWatchService.stop(this)
@@ -110,6 +119,21 @@ class MainActivity : ComponentActivity() {
                         onSearchSong = { item ->
                             if (!apps.openWeb(YouTubeSearch.searchUrl(item.title, item.artist))) {
                                 model.notify("No browser found.")
+                            }
+                        },
+                        onGetSong = { item ->
+                            // Hand the link to apps the user installed (e.g. a yt-dlp
+                            // frontend). Soundtrail performs no downloading itself.
+                            val target = item.url ?: YouTubeSearch.searchUrl(item.title, item.artist)
+                            if (!apps.shareUrl(target)) model.notify("Nothing can receive this link.")
+                        },
+                        onImportAudio = { playlistId, item ->
+                            importTarget = playlistId to item
+                            try {
+                                audioPicker.launch(arrayOf("audio/*"))
+                            } catch (e: Exception) {
+                                importTarget = null
+                                model.notify("No file picker is available on this device.")
                             }
                         },
                         onSaveRule = { rule -> model.saveAutomation(rule) },
@@ -231,8 +255,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Plays the linked song; link-less songs fall back to a YouTube search handoff. */
+    /** Plays locally imported audio first; then the linked song; else a YouTube search. */
     private fun playPlaylistItem(item: PlaylistItem) {
+        if (item.localFile != null && apps.playLocalFile(item.localFile)) return
         val url = item.url
         if (url != null) {
             val link = MusicLinkParser.parse(url)

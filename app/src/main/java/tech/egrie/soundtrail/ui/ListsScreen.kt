@@ -14,16 +14,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -74,6 +74,8 @@ data class ListsActions(
     val onRemoveSong: (playlistId: String, itemId: String) -> Unit,
     val onPlaySong: (PlaylistItem) -> Unit,
     val onSearchSong: (PlaylistItem) -> Unit,
+    val onGetSong: (PlaylistItem) -> Unit,
+    val onImportAudio: (playlistId: String, item: PlaylistItem) -> Unit,
     val onSaveRule: (AutomationRule) -> Unit,
     val onDeleteRule: (String) -> Unit
 )
@@ -188,7 +190,7 @@ internal fun ListsScreen(state: AppState, actions: ListsActions, onNotice: (Stri
                 }
             }
             Spacer(Modifier.height(13.dp))
-            Text("Triggers re-arm after a 15-minute cooldown. Motion is inferred on-device from GPS speed; the watch runs as a visible notification and never sends your location anywhere.",
+            Text("Triggers re-arm after a 15-minute cooldown. Motion is inferred on-device from GPS speed; the watch runs as a visible notification and never sends your location anywhere. The Get button hands a song's link to apps you installed (such as a yt-dlp frontend) — Soundtrail downloads nothing itself.",
                 color = Palette.muted, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(27.dp))
         }
@@ -271,15 +273,24 @@ private fun PlaylistDetailCard(
                 Column(Modifier.weight(1f)) {
                     Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium)
-                    Text(item.artist.ifBlank { item.provider?.label ?: "Link not set" },
+                    Text(
+                        when {
+                            item.localFile != null -> "On device · ${item.artist.ifBlank { "local audio" }}"
+                            else -> item.artist.ifBlank { item.provider?.label ?: "Link not set" }
+                        },
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = Palette.secondary, style = MaterialTheme.typography.labelMedium)
+                        color = Palette.secondary, style = MaterialTheme.typography.labelMedium
+                    )
                 }
                 IconButton(onClick = { actions.onPlaySong(item) }, Modifier.size(38.dp)) {
                     Icon(Icons.Rounded.PlayArrow, "Play ${item.title}", tint = Palette.primary)
                 }
-                IconButton(onClick = { actions.onSearchSong(item) }, Modifier.size(38.dp)) {
-                    Icon(Icons.Rounded.Search, "Search ${item.title} on YouTube", tint = Palette.lilac)
+                IconButton(onClick = { actions.onGetSong(item) }, Modifier.size(38.dp)) {
+                    Icon(Icons.Rounded.Download, "Get ${item.title} with an external app",
+                        tint = Palette.lilac)
+                }
+                IconButton(onClick = { actions.onImportAudio(playlist.id, item) }, Modifier.size(38.dp)) {
+                    Icon(Icons.Rounded.AudioFile, "Attach audio file to ${item.title}", tint = Palette.primary)
                 }
                 IconButton(onClick = { actions.onRemoveSong(playlist.id, item.id) }, Modifier.size(38.dp)) {
                     Icon(Icons.Rounded.Close, "Remove ${item.title}", tint = Palette.muted)
@@ -312,6 +323,9 @@ private fun PlaylistDetailCard(
             actions.onAddSong(playlist.id, title, artist, url)
             title = ""; artist = ""; url = ""
         }, Modifier.fillMaxWidth(), enabled = title.isNotBlank())
+        Spacer(Modifier.height(8.dp))
+        Text("⬇ Get shares the song's link with apps you installed (for example a yt-dlp frontend in MP3 mode). ♪ attaches the finished audio file to this song so it plays offline from this device.",
+            color = Palette.muted, style = MaterialTheme.typography.labelMedium)
     }
 }
 

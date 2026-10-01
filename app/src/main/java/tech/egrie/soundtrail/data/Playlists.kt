@@ -6,14 +6,18 @@ import org.json.JSONObject
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 import tech.egrie.soundtrail.integrations.MusicProvider
 
-/** One song inside a playlist. A song may be link-less until a supported link is added. */
+/**
+ * One song inside a playlist. A song may be link-less until a supported link is added,
+ * and may carry a locally imported audio file that plays offline.
+ */
 data class PlaylistItem(
     val id: String,
     val title: String,
     val artist: String,
     val url: String?,
     val provider: MusicProvider?,
-    val createdAt: Long
+    val createdAt: Long,
+    val localFile: String? = null
 )
 
 data class Playlist(
@@ -47,7 +51,9 @@ class PlaylistStore(context: Context) {
                                 artist = item.optString("artist"),
                                 url = url,
                                 provider = url?.let { MusicLinkParser.parse(it)?.provider },
-                                createdAt = item.getLong("createdAt")
+                                createdAt = item.getLong("createdAt"),
+                                localFile = item.optString("localFile")
+                                    .takeIf { it.isNotBlank() && it != "null" }
                             )
                         }.getOrNull()
                     },
@@ -78,6 +84,15 @@ class PlaylistStore(context: Context) {
         return true
     }
 
+    fun replaceItem(playlistId: String, itemId: String, replacement: PlaylistItem): Boolean {
+        val playlist = find(playlistId) ?: return false
+        if (playlist.items.none { it.id == itemId }) return false
+        save(playlist.copy(items = playlist.items.map {
+            if (it.id == itemId) replacement else it
+        }))
+        return true
+    }
+
     private fun write(lists: List<Playlist>) {
         val array = JSONArray()
         lists.forEach { playlist ->
@@ -89,6 +104,7 @@ class PlaylistStore(context: Context) {
                     put("artist", item.artist)
                     item.url?.let { put("url", it) }
                     item.provider?.let { put("provider", it.name) }
+                    item.localFile?.let { put("localFile", it) }
                     put("createdAt", item.createdAt)
                 })
             }

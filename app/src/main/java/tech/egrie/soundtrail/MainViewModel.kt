@@ -4,15 +4,18 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import tech.egrie.soundtrail.automation.AutomationRule
 import tech.egrie.soundtrail.automation.AutomationStore
 import tech.egrie.soundtrail.automation.LocationWatchService
+import tech.egrie.soundtrail.data.FileStore
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.data.PinStore
@@ -74,6 +77,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val pins = PinStore(application)
     private val playlists = PlaylistStore(application)
     private val automations = AutomationStore(application)
+    private val files = FileStore(application)
     private val spotify = SpotifyService(application)
     private val soundcloud = SoundCloudService(application)
     private val audioDb = AudioDbService()
@@ -300,6 +304,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun deletePlaylist(id: String) {
+        // Imported audio belongs to the song; it leaves with the playlist.
+        playlists.find(id)?.items?.forEach { item -> item.localFile?.let(files::delete) }
         playlists.remove(id)
         // Rules pointing at a deleted playlist would never fire again.
         automations.all().filter { it.playlistId == id }.forEach { automations.remove(it.id) }
@@ -337,9 +343,32 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun removePlaylistItem(playlistId: String, itemId: String) {
+        playlists.find(playlistId)?.items?.firstOrNull { it.id == itemId }?.localFile?.let(files::delete)
         playlists.removeItem(playlistId, itemId)
         _state.update { it.copy(playlists = playlists.all()) }
         notify("Song removed.")
+    }
+
+    /** Attaches a user-picked audio file (their own download/import) to a playlist song. */
+    fun attachLocalAudio(uri: Uri, playlistId: String, itemId: String) {
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) { files.importAudio(uri) }
+            if (name == null) {
+                notify("Couldn't read that audio file.")
+                return@launch
+            }
+            val item = playlists.find(playlistId)?.items?.firstOrNull { it.id == itemId }
+            if (item == null) {
+                files.delete(name)
+                notify("That song no longer exists.")
+                return@launch
+            }
+            val replaced = playlists.replaceItem(
+                playlistId, itemId, item.copy(localFile = name)
+            )
+            _state.update { it.copy(playlists = playlists.all()) }
+            notify(if (replaced) "Audio attached — \"${item.title}\" now plays from this device." else "Couldn't attach the audio file.")
+        }
     }
 
     fun setAutoSearchYoutube(enabled: Boolean) {

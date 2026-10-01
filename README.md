@@ -1,6 +1,6 @@
 # Soundtrail — music for the places you love
 
-An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** song links as private, location-based pins, with a free **song lookup** (TheAudioDB), local **playlists**, and opt-in **automations** that trigger a playlist from a place, a way of moving (driving/running/walking), or a time window.
+An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** song links as private, location-based pins, with a free **song lookup** (TheAudioDB), local **playlists** with **imported offline audio**, and opt-in **automations** that trigger a playlist from a place, a way of moving (driving/running/walking), or a time window.
 
 ## What connects, and how
 
@@ -9,20 +9,38 @@ An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** son
 | Spotify | Authorization Code **with PKCE** (no client secret). Search for tracks with the official Web API; tap a pin to open playback in Spotify or a browser. Tokens are encrypted with Android Keystore. |
 | SoundCloud | Authorization Code **with PKCE** (OAuth 2.1) against `secure.soundcloud.com`. Search for tracks with the official API; tap a pin to open playback in SoundCloud or a browser. Tokens **and the Client Secret** are encrypted with Android Keystore. Requires an API app on SoundCloud's side — see below. |
 | Song lookup (TheAudioDB) | **Free, no account.** Enter artist + title to get exact names, album, genre/mood, and — when TheAudioDB knows one — a Spotify or YouTube link that passes the same allowlist. Metadata only; nothing is stored. |
-| YouTube | Links are opened in YouTube's own apps or a browser. Soundtrail can auto-open YouTube **search results** when a song is added to a playlist (toggleable), but it **never downloads, scrapes, streams, or caches YouTube content** — that would violate YouTube's Terms of Service. Playback and offline saving belong inside YouTube's apps. |
+| YouTube | Links are opened in YouTube's own apps or a browser. Adding a song can auto-open YouTube **search results** (toggleable). The **Get** button hands a song's link to *apps you installed* — such as a yt-dlp frontend or Termux — via the standard share sheet. Soundtrail bundles no downloader, scrapes nothing, and streams nothing; playback, saving, and any downloading are entirely your tools' and your responsibility. |
+| Your audio files | Import audio you already have (including MP3s you made with external tools such as yt-dlp) into a playlist. Files are copied into private app storage and played offline in your chosen music player. |
 | Location & motion | `LocationManager` on demand, plus an **opt-in** foreground watch service for automations. Motion (driving/running/walking) is inferred **on-device from GPS speed** — no Play Services, no Activity Recognition API, no advertising ID. |
 | Time | The watch checks the current time every minute; automations can fire only inside a time window (wraps midnight). The Lists tab shows the live clock. |
 
 ## Playlists & automations
 
 - **Playlists** (Lists tab) are named groups of songs stored on the device. A song needs a title; a supported link (Spotify / YouTube Music / SoundCloud) is optional — without one, tapping play searches YouTube for it.
+- **Get a song (external downloader handoff):** the ⬇ button shares the song's link (or its YouTube search URL) through the Android share sheet so **your own installed tools** receive it — a yt-dlp GUI frontend, Termux, or anything else. Soundtrail targets no app and performs no downloading; what your tools do is between you, your tools, and the content's rights holders.
+- **Import audio:** the ♪ button attaches an audio file from your device to a playlist song. The file is copied into private storage and shows as *On device*; tapping play opens it in your music player, fully offline. Removing the song or playlist deletes the copy.
 - **Automations** point a playlist at conditions: *near a saved spot (20–2000 m radius)*, *while walking / running / driving*, and/or *between two times of day*. Set any combination; all set conditions must hold at once.
 - **The watch**: an opt-in foreground service (persistent notification — required by Android and kept honest by it) checks location, motion, and time. When a rule matches it posts a notification with **Play playlist** and **Open Soundtrail** actions. Nothing plays without a tap, and a rule re-arms after a 15-minute cooldown.
 - **Motion inference**: GPS speed bands — under 0.5 m/s stationary, to 2.6 walking, to 7.5 running (covers cycling), above that driving. It is an estimate; tunnels and poor GPS delay or miss triggers.
 - **Battery**: continuous GPS watching uses noticeably more battery. The watch runs only while its toggle is on and its notification is visible.
-- **Privacy**: coordinates, motion, playlists, and rules never leave the device. The only data ever sent anywhere remains the Spotify/SoundCloud API calls from your own connected accounts and TheAudioDB's artist/title query.
+- **Privacy**: coordinates, motion, playlists, rules, and imported audio never leave the device. The only data ever sent anywhere remains the Spotify/SoundCloud API calls from your own connected accounts and TheAudioDB's artist/title query.
 
-**Important:** microG is a replacement for parts of Google Play Services, **not** a YouTube Music catalog/playback API. There is no official YouTube Music library or audio-streaming integration here. The app does not scrape YouTube, download audio, bypass subscriptions, or install modified apps. Spotify and SoundCloud playback stay in their own apps rather than being streamed by Soundtrail.
+## Using yt-dlp with Soundtrail (your tools, your responsibility)
+
+Soundtrail deliberately contains **no downloader** — embedding one would require circumventing YouTube's technical protections, which violates YouTube's Terms of Service and would put the app (and you) on the wrong side of it. What Soundtrail *does* is make your own yt-dlp workflow one tap away:
+
+1. **Hand off:** on the Lists tab, open a playlist and tap **⬇ Get** on a song. Its link (or a YouTube search for it) opens in the Android share sheet. Send it to your installed downloader — for example a yt-dlp frontend app, or Termux.
+2. **Download with yt-dlp yourself**, e.g. in Termux on the same device:
+
+   ```bash
+   pkg install yt-dlp ffmpeg
+   yt-dlp -x --audio-format mp3 "https://www.youtube.com/watch?v=…"
+   ```
+
+   (Those are yt-dlp's own options for MP3 extraction; see the [yt-dlp docs](https://github.com/yt-dlp/yt-dlp). Only download content you have the right to download — your own uploads, Creative-Commons or public-domain material, or where the rightsholder permits it.)
+3. **Import:** back in Soundtrail, tap **♪** on that playlist song and pick the MP3. It now shows *On device* and plays offline in your music player — including when an automation triggers the playlist.
+
+**Important:** microG is a replacement for parts of Google Play Services, **not** a YouTube Music catalog/playback API. There is no official YouTube Music library or audio-streaming integration here. Soundtrail itself does not scrape YouTube, download audio, bypass subscriptions, or install modified apps; external tools you install and operate on your own device are outside the app and outside this policy. Spotify and SoundCloud playback stay in their own apps rather than being streamed by Soundtrail.
 
 **SoundCloud access:** SoundCloud treats *every* API client as confidential, so its token exchange requires both a Client ID **and** a Client Secret — unlike Spotify, there is no public-client mode. Registering an API app requires an eligible SoundCloud subscription or an approved API request; check [SoundCloud for Developers](https://developers.soundcloud.com/docs/api/register-app). The Secret is stored only in Android Keystore-encrypted storage on this device.
 
@@ -71,7 +89,7 @@ An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** son
 - **Explore:** tap **Drop a pin**. Enter a song title and a supported link. Use **Locate** or enter coordinates manually; name the place and save.
 - **Search:** connect Spotify or SoundCloud and switch the provider chip, use the **free TheAudioDB lookup** (artist + title, no account), or paste a `music.youtube.com/watch?v=…` link.
 - **Share:** in Spotify, YouTube Music, or SoundCloud, share a **song** link to Soundtrail to open a prefilled pin editor.
-- **Lists:** create a playlist, add songs (link optional), and turn on the watch. Create an automation — for example, *"Morning commute" → playlist "Drive" · while driving · 07:00–09:00* — and tap the notification when it fires.
+- **Lists:** create a playlist, add songs (link optional), use **⬇ Get** to hand a link to your installed tools and **♪** to attach the resulting audio file for offline play, then turn on the watch. Create an automation — for example, *"Morning commute" → playlist "Drive" · while driving · 07:00–09:00* — and tap the notification when it fires.
 - Supported links: `open.spotify.com/track/<id>`, `spotify:track:<id>`, `music.youtube.com/watch?v=<id>`, `youtube.com/watch?v=<id>`, `youtu.be/<id>`, `soundcloud.com/<artist>/<track>` (including `www.`/`m.` hosts and `/s-<token>` secret trails), and `on.soundcloud.com/<token>` or `soundcloud.app.goo.gl/<token>` share links. Tracking parameters are removed. Playlists, artist profiles, site pages, and unknown domains are rejected.
 
 ## Privacy and limitations
