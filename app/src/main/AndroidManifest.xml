@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Only for the opt-in automation watch: a visible foreground service, never hidden tracking. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <!-- Android 11+ limits package visibility. These are only used for app-status checks and handoff. -->
@@ -51,5 +55,11 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Opt-in automation watch: visible foreground service, location type declared. -->
+        <service
+            android:name=".automation.LocationWatchService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>

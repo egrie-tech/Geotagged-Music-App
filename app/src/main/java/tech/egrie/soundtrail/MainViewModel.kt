@@ -10,9 +10,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tech.egrie.soundtrail.automation.AutomationRule
+import tech.egrie.soundtrail.automation.AutomationStore
+import tech.egrie.soundtrail.automation.LocationWatchService
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.data.PinStore
+import tech.egrie.soundtrail.data.PlaylistItem
+import tech.egrie.soundtrail.data.PlaylistStore
 import tech.egrie.soundtrail.integrations.AudioDbService
 import tech.egrie.soundtrail.integrations.DeviceApps
 import tech.egrie.soundtrail.integrations.MusicLinkParser
@@ -20,6 +25,7 @@ import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
+import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
 import java.util.UUID
 
@@ -45,6 +51,10 @@ internal data class AppState(
     val lookupSearching: Boolean = false,
     val lookupResults: List<SongInfo> = emptyList(),
     val lookupError: String? = null,
+    val playlists: List<tech.egrie.soundtrail.data.Playlist> = emptyList(),
+    val automations: List<AutomationRule> = emptyList(),
+    val autoSearchYoutube: Boolean = true,
+    val watchStatus: tech.egrie.soundtrail.automation.WatchStatus = tech.egrie.soundtrail.automation.WatchStatus(),
     val spotifyAppInstalled: Boolean = false,
     val soundcloudAppInstalled: Boolean = false,
     val youtubeAppInstalled: Boolean = false,
@@ -62,6 +72,8 @@ internal data class PinInput(
 
 internal class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val pins = PinStore(application)
+    private val playlists = PlaylistStore(application)
+    private val automations = AutomationStore(application)
     private val spotify = SpotifyService(application)
     private val soundcloud = SoundCloudService(application)
     private val audioDb = AudioDbService()
@@ -71,6 +83,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val _state = MutableStateFlow(
         AppState(
             pins = pins.all(),
+            playlists = playlists.all(),
+            automations = automations.all(),
             spotifyConnected = spotify.connected,
             spotifyClientId = spotify.clientId,
             soundcloudConnected = soundcloud.connected,
@@ -86,6 +100,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         refreshDeviceStatus()
         if (spotify.connected) loadProfile()
         if (soundcloud.connected) loadSoundcloudProfile()
+        viewModelScope.launch {
+            LocationWatchService.status.collect { live -> _state.update { it.copy(watchStatus = live) } }
+        }
     }
 
     fun notify(message: String) { _messages.tryEmit(message) }
@@ -260,6 +277,103 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
+
+    // ----- Playlists -----
+
+    fun createPlaylist(rawName: String) {
+        val name = rawName.trim().take(80)
+        when {
+            name.isEmpty() -> notify("Give the playlist a name first.")
+            playlists.all().any { it.name.equals(name, ignoreCase = true) } ->
+                notify("A playlist called \"$name\" already exists.")
+            else -> {
+                playlists.save(
+                    tech.egrie.soundtrail.data.Playlist(
+                        id = UUID.randomUUID().toString(), name = name,
+                        items = emptyList(), createdAt = System.currentTimeMillis()
+                    )
+                )
+                _state.update { it.copy(playlists = playlists.all()) }
+                notify("Playlist \"$name\" created.")
+            }
+        }
+    }
+
+    fun deletePlaylist(id: String) {
+        playlists.remove(id)
+        // Rules pointing at a deleted playlist would never fire again.
+        automations.all().filter { it.playlistId == id }.forEach { automations.remove(it.id) }
+        _state.update { it.copy(playlists = playlists.all(), automations = automations.all()) }
+        notify("Playlist removed.")
+    }
+
+    /**
+     * Adds a song and, when auto-search is on, returns the YouTube *search* URL to open.
+     * Soundtrail never downloads; playback and saving stay in YouTube's own apps.
+     */
+    fun addToPlaylist(playlistId: String, rawTitle: String, rawArtist: String, rawUrl: String): String? {
+        val title = rawTitle.trim().take(120)
+        val artist = rawArtist.trim().take(120)
+        val link = rawUrl.trim().takeIf(String::isNotBlank)?.let(MusicLinkParser::fromText)
+        when {
+            title.isEmpty() -> { notify("Add a song title first."); return null }
+            playlists.find(playlistId) == null -> { notify("That playlist no longer exists."); return null }
+            rawUrl.trim().isNotBlank() && link == null -> {
+                notify("That link is not a supported song URL. Leave it empty to just search YouTube.")
+                return null
+            }
+        }
+        val added = playlists.addItem(
+            playlistId,
+            PlaylistItem(
+                id = UUID.randomUUID().toString(), title = title, artist = artist,
+                url = link?.url, provider = link?.provider, createdAt = System.currentTimeMillis()
+            )
+        )
+        if (!added) return null
+        _state.update { it.copy(playlists = playlists.all()) }
+        notify("Added \"$title\" to ${playlists.find(playlistId)?.name.orEmpty()}.")
+        return if (_state.value.autoSearchYoutube) YouTubeSearch.searchUrl(title, artist) else null
+    }
+
+    fun removePlaylistItem(playlistId: String, itemId: String) {
+        playlists.removeItem(playlistId, itemId)
+        _state.update { it.copy(playlists = playlists.all()) }
+        notify("Song removed.")
+    }
+
+    fun setAutoSearchYoutube(enabled: Boolean) {
+        _state.update { it.copy(autoSearchYoutube = enabled) }
+    }
+
+    // ----- Automations -----
+
+    fun saveAutomation(rule: AutomationRule): Boolean {
+        val name = rule.name.trim()
+        when {
+            name.isEmpty() -> { notify("Name this automation first."); return false }
+            playlists.find(rule.playlistId) == null -> { notify("Pick a playlist that still exists."); return false }
+            !rule.hasCondition -> { notify("Set a place, a motion, or a time window."); return false }
+            rule.place != null && (rule.radiusMeters < 20.0 || rule.radiusMeters > 2000.0) -> {
+                notify("Trigger radius must be 20–2000 meters."); return false
+            }
+            (rule.fromMinute == null) != (rule.toMinute == null) -> {
+                notify("Fill both time fields, or leave both empty."); return false
+            }
+        }
+        automations.save(rule.copy(name = name.take(80)))
+        _state.update { it.copy(automations = automations.all()) }
+        notify("Automation \"${name.take(80)}\" saved${if (watchRunning) " — the watch will apply it now." else "."}")
+        return true
+    }
+
+    fun deleteAutomation(id: String) {
+        automations.remove(id)
+        _state.update { it.copy(automations = automations.all()) }
+        notify("Automation removed.")
+    }
+
+    private val watchRunning: Boolean get() = LocationWatchService.status.value.running
 
     fun addPin(input: PinInput): Boolean {
         val link = MusicLinkParser.fromText(input.url)
