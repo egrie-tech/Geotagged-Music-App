@@ -25,11 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -62,9 +62,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import tech.egrie.soundtrail.AppState
 import tech.egrie.soundtrail.PinInput
+import tech.egrie.soundtrail.SearchProvider
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
-import tech.egrie.soundtrail.integrations.SpotifyTrack
+import tech.egrie.soundtrail.integrations.TrackResult
 import java.io.Serializable
 import java.util.Locale
 
@@ -77,7 +78,9 @@ internal data class PinDraft(
     companion object { private const val serialVersionUID = 1L }
 }
 
-private enum class Tab(val label: String) { HOME("Explore"), SEARCH("Search"), PINS("Pins"), CONNECT("Connect") }
+private enum class Tab(val label: String) {
+    HOME("Explore"), SEARCH("Search"), PINS("Pins"), LISTS("Lists"), CONNECT("Connect")
+}
 
 @Composable
 internal fun SoundtrailApp(
@@ -85,17 +88,25 @@ internal fun SoundtrailApp(
     messages: Flow<String>,
     incomingDraft: PinDraft?,
     onIncomingConsumed: () -> Unit,
+    openListsSignal: Int,
+    lists: ListsActions,
     onLocate: () -> Unit,
     onSearch: (String) -> Unit,
+    onSelectSearchProvider: (SearchProvider) -> Unit,
+    onLookup: (String, String) -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
+    onConnectSoundcloud: (String, String) -> Unit,
+    onDisconnectSoundcloud: () -> Unit,
     onPlay: (MusicPin) -> Unit,
     onMap: (GeoPoint) -> Unit,
     onDelete: (String) -> Unit,
     onOpenSpotify: () -> Unit,
     onOpenYoutube: () -> Unit,
+    onOpenSoundcloud: () -> Unit,
     onOpenDashboard: () -> Unit,
     onOpenMicroG: () -> Unit,
+    onOpenSoundcloudApps: () -> Unit,
     onSavePin: (PinInput) -> Boolean,
     onNotice: (String) -> Unit
 ) {
@@ -111,6 +122,7 @@ internal fun SoundtrailApp(
             onIncomingConsumed()
         }
     }
+    LaunchedEffect(openListsSignal) { if (openListsSignal > 0) tab = Tab.LISTS }
     BackHandler(draft != null) { draft = null }
 
     pendingDelete?.let { pin ->
@@ -160,18 +172,25 @@ internal fun SoundtrailApp(
                     onPlay = onPlay, onMap = onMap, onDelete = { pendingDelete = it }
                 )
                 Tab.SEARCH -> MusicSearchScreen(
-                    state, onSearch, onConnect = { tab = Tab.CONNECT },
+                    state, onSearch, onSelectProvider = onSelectSearchProvider,
+                    onConnect = { tab = Tab.CONNECT },
                     onSelectTrack = { draft = PinDraft(title = it.title, artist = it.artist, url = it.url) },
                     onAddLink = { draft = PinDraft(url = it) },
+                    onLookup = onLookup,
+                    onSelectLookup = {
+                        draft = PinDraft(title = it.title, artist = it.artist, url = it.url.orEmpty())
+                    },
                     onOpenYoutube = onOpenYoutube, onNotice = onNotice
                 )
                 Tab.PINS -> PinsScreen(
                     state, onNewPin = { draft = PinDraft() }, onLocate = onLocate,
                     onPlay = onPlay, onMap = onMap, onDelete = { pendingDelete = it }
                 )
+                Tab.LISTS -> ListsScreen(state, lists, onNotice)
                 Tab.CONNECT -> ConnectionsScreen(
-                    state, onConnect, onDisconnect, onOpenSpotify, onOpenYoutube,
-                    onOpenDashboard, onOpenMicroG
+                    state, onConnect, onDisconnect, onConnectSoundcloud, onDisconnectSoundcloud,
+                    onOpenSpotify, onOpenYoutube, onOpenSoundcloud,
+                    onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps
                 )
             }
         }
@@ -191,6 +210,7 @@ private fun BottomTabs(selected: Tab, onSelect: (Tab) -> Unit) {
                 Tab.HOME -> Icons.Rounded.Home
                 Tab.SEARCH -> Icons.Rounded.Search
                 Tab.PINS -> Icons.Rounded.Bookmark
+                Tab.LISTS -> Icons.Rounded.QueueMusic
                 Tab.CONNECT -> Icons.Rounded.Settings
             }
             Column(
@@ -261,9 +281,9 @@ private fun HomeScreen(
         SurfaceCard(Modifier.fillMaxWidth()) {
             Eyebrow("YOUR MUSIC, YOUR WAY", Palette.lilac)
             Spacer(Modifier.height(9.dp))
-            Text("Two worlds. One map.", style = MaterialTheme.typography.titleLarge)
+            Text("Three worlds. One map.", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(6.dp))
-            Text("Search with Spotify, or pin a YouTube Music link. Playback stays in your music app.",
+            Text("Search with Spotify or SoundCloud, pin a YouTube Music link, or let a playlist greet you at a place.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(6.dp))
             TextButton(onClick = onConnections) { Text("Manage connections  →", color = Palette.primary) }
@@ -366,7 +386,7 @@ private fun PinsScreen(
                     Spacer(Modifier.height(10.dp))
                     Text("Your collection starts here", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(6.dp))
-                    Text("Save a Spotify or YouTube Music song at your current location — or enter a place yourself.",
+                    Text("Save a Spotify, SoundCloud, or YouTube Music song at your current location — or enter a place yourself.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                 }
             }

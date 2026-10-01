@@ -22,6 +22,43 @@ class MusicLinkParserTest {
         assertEquals(expected, MusicLinkParser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
     }
 
+    @Test fun `soundcloud permalinks canonicalize and drop tracking parameters`() {
+        val expected = MusicLink(MusicProvider.SOUNDCLOUD, "https://soundcloud.com/matas/hobnotropic")
+        assertEquals(expected, MusicLinkParser.parse("https://soundcloud.com/matas/hobnotropic"))
+        assertEquals(expected, MusicLinkParser.parse("https://www.soundcloud.com/matas/hobnotropic?si=tracking"))
+        assertEquals(expected, MusicLinkParser.parse("https://m.soundcloud.com/matas/hobnotropic?utm_source=share"))
+        assertEquals(expected, MusicLinkParser.fromText("Listen: https://soundcloud.com/matas/hobnotropic."))
+    }
+
+    @Test fun `soundcloud share links and secret tokens survive`() {
+        assertEquals(
+            MusicLink(MusicProvider.SOUNDCLOUD, "https://on.soundcloud.com/9xk2mQaB"),
+            MusicLinkParser.parse("https://on.soundcloud.com/9xk2mQaB?si=tracking")
+        )
+        assertEquals(
+            MusicLink(MusicProvider.SOUNDCLOUD, "https://on.soundcloud.com/AbC_123"),
+            MusicLinkParser.parse("HTTPS://ON.SOUNDCLOUD.COM/AbC_123")
+        )
+        assertEquals(
+            MusicLink(MusicProvider.SOUNDCLOUD, "https://soundcloud.com/artist/track/s-Secret9"),
+            MusicLinkParser.parse("https://soundcloud.com/artist/track/s-Secret9")
+        )
+    }
+
+    @Test fun `rejects soundcloud site pages playlists and lookalike hosts`() {
+        assertNull(MusicLinkParser.parse("https://soundcloud.com/matas"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com/matas/sets/summer-mix"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com/discover/sets/charts-top-electronic"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com/you/apps"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com.evil.example/matas/hobnotropic"))
+        assertNull(MusicLinkParser.parse("http://soundcloud.com/matas/hobnotropic"))
+        assertNull(MusicLinkParser.parse("https://user@soundcloud.com/matas/hobnotropic"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com:443/matas/hobnotropic"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com/matas/hobnotropic#nowhere"))
+        assertNull(MusicLinkParser.parse("https://on.soundcloud.com/abc"))
+        assertNull(MusicLinkParser.parse("https://soundcloud.com//"))
+    }
+
     @Test fun `rejects playlists forged hosts and non-https URLs`() {
         assertNull(MusicLinkParser.parse("https://music.youtube.com/playlist?list=PL123"))
         assertNull(MusicLinkParser.parse("https://open.spotify.com.evil.example/track/$spotifyId"))

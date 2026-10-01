@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Imported songs are shared read-only with the user's chosen music player. -->
+<paths>
+    <files-path name="audio" path="audio/" />
+</paths>

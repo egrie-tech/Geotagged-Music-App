@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import tech.egrie.soundtrail.data.FileStore
 import tech.egrie.soundtrail.data.GeoPoint
 import java.util.Locale
 
@@ -18,6 +19,7 @@ class DeviceApps(private val context: Context) {
     }
 
     val spotifyInstalled: Boolean get() = installed("com.spotify.music")
+    val soundcloudInstalled: Boolean get() = installed("com.soundcloud.android")
     val youtubeMusicPackage: String? get() = listOf(
         "com.google.android.apps.youtube.music", "app.revanced.android.youtube.music"
     ).firstOrNull(::installed)
@@ -35,6 +37,7 @@ class DeviceApps(private val context: Context) {
         val preferredPackage = when (verified.provider) {
             MusicProvider.SPOTIFY -> "com.spotify.music".takeIf(::installed)
             MusicProvider.YOUTUBE_MUSIC -> youtubeMusicPackage
+            MusicProvider.SOUNDCLOUD -> "com.soundcloud.android".takeIf(::installed)
         }
         if (preferredPackage != null && view(verified.url, preferredPackage)) return true
         return view(verified.url)
@@ -42,6 +45,28 @@ class DeviceApps(private val context: Context) {
 
     fun openYouTubeMusic(): Boolean = launch(youtubeMusicPackage) || view("https://music.youtube.com/")
     fun openSpotify(): Boolean = launch("com.spotify.music".takeIf(::installed)) || view("https://open.spotify.com/")
+    fun openSoundCloud(): Boolean = launch("com.soundcloud.android".takeIf(::installed)) || view("https://soundcloud.com/")
+
+    /**
+     * Hands a URL to whatever apps the user installed — for example a yt-dlp frontend
+     * or a terminal. Soundtrail performs no downloading itself and targets no app.
+     */
+    fun shareUrl(url: String): Boolean {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
+        }
+        return start(Intent.createChooser(intent, null))
+    }
+
+    /** Plays a locally imported song in the user's chosen music player. */
+    fun playLocalFile(fileName: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(FileStore(context).openUri(fileName), "audio/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return start(intent)
+    }
     fun openWeb(url: String): Boolean = view(url)
 
     fun showOnMap(point: GeoPoint): Boolean {

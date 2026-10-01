@@ -24,6 +24,7 @@ internal object Palette {
     val lilac = Color(0xFFC6B5FA)
     val spotify = Color(0xFF1ED760)
     val youtube = Color(0xFFFF645E)
+    val soundcloud = Color(0xFFFF7A45)
 }
 
 private val colors = darkColorScheme(
