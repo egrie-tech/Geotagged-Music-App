@@ -13,8 +13,10 @@ import kotlinx.coroutines.launch
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.data.PinStore
+import tech.egrie.soundtrail.integrations.AudioDbService
 import tech.egrie.soundtrail.integrations.DeviceApps
 import tech.egrie.soundtrail.integrations.MusicLinkParser
+import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
@@ -40,6 +42,9 @@ internal data class AppState(
     val searching: Boolean = false,
     val results: List<TrackResult> = emptyList(),
     val searchError: String? = null,
+    val lookupSearching: Boolean = false,
+    val lookupResults: List<SongInfo> = emptyList(),
+    val lookupError: String? = null,
     val spotifyAppInstalled: Boolean = false,
     val soundcloudAppInstalled: Boolean = false,
     val youtubeAppInstalled: Boolean = false,
@@ -59,6 +64,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val pins = PinStore(application)
     private val spotify = SpotifyService(application)
     private val soundcloud = SoundCloudService(application)
+    private val audioDb = AudioDbService()
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
 
@@ -232,6 +238,25 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                         soundcloudConnected = soundcloud.connected
                     )
                 }
+            }
+        }
+    }
+
+    fun lookupSong(artist: String, title: String) {
+        if (_state.value.lookupSearching) return
+        if (artist.isBlank() || title.isBlank()) {
+            _state.update { it.copy(lookupError = "Enter both artist and song title.") }
+            return
+        }
+        _state.update { it.copy(lookupSearching = true, lookupResults = emptyList(), lookupError = null) }
+        viewModelScope.launch {
+            try {
+                val songs = audioDb.searchTracks(artist, title)
+                _state.update { it.copy(lookupResults = songs) }
+            } catch (e: Exception) {
+                _state.update { it.copy(lookupError = e.message ?: "Song lookup is unavailable.") }
+            } finally {
+                _state.update { it.copy(lookupSearching = false) }
             }
         }
     }

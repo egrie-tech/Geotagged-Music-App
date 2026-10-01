@@ -65,6 +65,7 @@ import tech.egrie.soundtrail.PinInput
 import tech.egrie.soundtrail.SearchProvider
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
+import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.TrackResult
 import java.io.Serializable
 import java.util.Locale
@@ -89,6 +90,7 @@ internal fun SoundtrailApp(
     onLocate: () -> Unit,
     onSearch: (String) -> Unit,
     onSelectSearchProvider: (SearchProvider) -> Unit,
+    onLookup: (String, String) -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onConnectSoundcloud: (String, String) -> Unit,
@@ -170,6 +172,10 @@ internal fun SoundtrailApp(
                     onConnect = { tab = Tab.CONNECT },
                     onSelectTrack = { draft = PinDraft(title = it.title, artist = it.artist, url = it.url) },
                     onAddLink = { draft = PinDraft(url = it) },
+                    onLookup = onLookup,
+                    onSelectLookup = {
+                        draft = PinDraft(title = it.title, artist = it.artist, url = it.url.orEmpty())
+                    },
                     onOpenYoutube = onOpenYoutube, onNotice = onNotice
                 )
                 Tab.PINS -> PinsScreen(

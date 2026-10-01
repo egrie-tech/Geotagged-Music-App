@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     onLocate = onLocate,
                     onSearch = model::search,
                     onSelectSearchProvider = model::selectSearchProvider,
+                    onLookup = model::lookupSong,
                     onConnect = ::connectSpotify,
                     onDisconnect = model::disconnectSpotify,
                     onConnectSoundcloud = ::connectSoundcloud,

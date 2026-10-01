@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Link
@@ -42,6 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -50,12 +53,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import tech.egrie.soundtrail.AppState
 import tech.egrie.soundtrail.SearchProvider
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 import tech.egrie.soundtrail.integrations.MusicProvider
+import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.integrations.SOUNDCLOUD_REDIRECT_URI
 import tech.egrie.soundtrail.integrations.SPOTIFY_REDIRECT_URI
@@ -64,12 +67,20 @@ import tech.egrie.soundtrail.integrations.SPOTIFY_REDIRECT_URI
 internal fun MusicSearchScreen(
     state: AppState, onSearch: (String) -> Unit, onSelectProvider: (SearchProvider) -> Unit,
     onConnect: () -> Unit, onSelectTrack: (TrackResult) -> Unit, onAddLink: (String) -> Unit,
+    onLookup: (String, String) -> Unit, onSelectLookup: (SongInfo) -> Unit,
     onOpenYoutube: () -> Unit, onNotice: (String) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var youtubeLink by rememberSaveable { mutableStateOf("") }
+    var lookupArtist by rememberSaveable { mutableStateOf("") }
+    var lookupTitle by rememberSaveable { mutableStateOf("") }
     var hasSearched by rememberSaveable { mutableStateOf(false) }
+    var hasLookedUp by rememberSaveable { mutableStateOf(false) }
     fun search() { hasSearched = query.isNotBlank(); onSearch(query) }
+    fun lookUp() {
+        hasLookedUp = lookupArtist.isNotBlank() && lookupTitle.isNotBlank()
+        onLookup(lookupArtist, lookupTitle)
+    }
 
     val provider = state.searchProvider
     val soundcloudSelected = provider == SearchProvider.SOUNDCLOUD
@@ -88,7 +99,7 @@ internal fun MusicSearchScreen(
             Spacer(Modifier.height(8.dp))
             Text("Find a feeling.\nGive it a place.", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(8.dp))
-            Text("Find a track on Spotify or SoundCloud, or bring a YouTube Music link.",
+            Text("Find a track on Spotify or SoundCloud, look up a song free, or bring a YouTube Music link.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(20.dp))
             SurfaceCard(Modifier.fillMaxWidth()) {
@@ -159,6 +170,64 @@ internal fun MusicSearchScreen(
             Spacer(Modifier.height(16.dp))
             SurfaceCard(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).background(Palette.lilac.copy(alpha = .16f), CircleShape),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Cloud, null, tint = Palette.lilac, modifier = Modifier.size(19.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text("Free song lookup", style = MaterialTheme.typography.titleLarge)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Look up a song on TheAudioDB's free API — no account needed. Exact names, album, and a link when one is known.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(13.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = lookupArtist, onValueChange = { lookupArtist = it },
+                        modifier = Modifier.weight(1f), singleLine = true,
+                        label = { Text("Artist") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                    )
+                    OutlinedTextField(
+                        value = lookupTitle, onValueChange = { lookupTitle = it },
+                        modifier = Modifier.weight(1f), singleLine = true,
+                        label = { Text("Song title") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onSearch = { lookUp() })
+                    )
+                }
+                Spacer(Modifier.height(11.dp))
+                PrimaryButton("Look up song", { lookUp() }, Modifier.fillMaxWidth(),
+                    enabled = !state.lookupSearching &&
+                        lookupArtist.isNotBlank() && lookupTitle.isNotBlank())
+            }
+            if (state.lookupSearching) {
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Searching TheAudioDB…", color = Palette.secondary)
+                }
+            }
+            if (state.lookupError != null) {
+                Spacer(Modifier.height(14.dp))
+                Text(state.lookupError, color = Palette.coral, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (state.lookupResults.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                SectionHeading("Songs")
+            } else if (hasLookedUp && !state.lookupSearching && state.lookupError == null) {
+                Spacer(Modifier.height(14.dp))
+                Text("No song found. Check the spelling or try another search.", color = Palette.secondary)
+            }
+        }
+        items(state.lookupResults, key = { "${it.title}|${it.artist}|${it.album}" }) { song ->
+            LookupRow(song) { onSelectLookup(song) }
+        }
+        item {
+            Spacer(Modifier.height(16.dp))
+            SurfaceCard(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(34.dp).background(Palette.youtube.copy(alpha = .16f), CircleShape),
                         contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Link, null, tint = Palette.youtube, modifier = Modifier.size(19.dp))
@@ -209,6 +278,48 @@ private fun ProviderSwitch(selected: SearchProvider, onSelect: (SearchProvider) 
                 style = MaterialTheme.typography.labelMedium
             )
         }
+    }
+}
+
+@Composable
+private fun LookupRow(song: SongInfo, onPin: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.surface)
+            .clickable(onClick = onPin).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(15.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF3A2F4A), Color(0xFF7A6B9B)))),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Cloud, null, tint = Palette.text, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleMedium)
+            Text(song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
+            val detail = listOf(song.album, song.genre, song.mood)
+                .filter(String::isNotBlank).joinToString(" · ")
+            if (detail.isNotBlank()) {
+                Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelMedium, color = Palette.muted)
+            }
+            if (song.url != null) {
+                Spacer(Modifier.height(5.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (song.spotifyUrl != null) ProviderPill(MusicProvider.SPOTIFY)
+                    if (song.youtubeUrl != null) ProviderPill(MusicProvider.YOUTUBE_MUSIC)
+                }
+            } else {
+                Text("Metadata only — add a song link when pinning",
+                    style = MaterialTheme.typography.labelMedium, color = Palette.muted)
+            }
+        }
+        Icon(Icons.Rounded.Add, contentDescription = "Pin ${song.title}", tint = Palette.primary)
+        Spacer(Modifier.width(5.dp))
     }
 }
 
