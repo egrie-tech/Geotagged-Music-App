@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.integrations.MusicProvider
-import tech.egrie.soundtrail.integrations.SpotifyTrack
+import tech.egrie.soundtrail.integrations.TrackResult
 import java.util.Locale
 
 internal val cardShape = RoundedCornerShape(22.dp)
@@ -115,11 +115,14 @@ internal fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier
 
 @Composable
 internal fun ProviderArtwork(provider: MusicProvider, modifier: Modifier = Modifier) {
-    val a = if (provider == MusicProvider.SPOTIFY) Palette.primaryDark else Color(0xFF49313D)
-    val b = if (provider == MusicProvider.SPOTIFY) Color(0xFF5A6740) else Color(0xFF9B5960)
+    val gradient = when (provider) {
+        MusicProvider.SPOTIFY -> listOf(Palette.primaryDark, Color(0xFF5A6740))
+        MusicProvider.YOUTUBE_MUSIC -> listOf(Color(0xFF49313D), Color(0xFF9B5960))
+        MusicProvider.SOUNDCLOUD -> listOf(Color(0xFF4A2E1A), Color(0xFF9C4A1F))
+    }
     Box(
         modifier.size(55.dp).clip(RoundedCornerShape(15.dp))
-            .background(Brush.linearGradient(listOf(a, b))),
+            .background(Brush.linearGradient(gradient)),
         contentAlignment = Alignment.Center
     ) {
         Icon(Icons.Rounded.MusicNote, null, tint = Palette.text, modifier = Modifier.size(26.dp))
@@ -128,7 +131,11 @@ internal fun ProviderArtwork(provider: MusicProvider, modifier: Modifier = Modif
 
 @Composable
 internal fun ProviderPill(provider: MusicProvider) {
-    val color = if (provider == MusicProvider.SPOTIFY) Palette.spotify else Palette.youtube
+    val color = when (provider) {
+        MusicProvider.SPOTIFY -> Palette.spotify
+        MusicProvider.YOUTUBE_MUSIC -> Palette.youtube
+        MusicProvider.SOUNDCLOUD -> Palette.soundcloud
+    }
     Box(
         Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = .13f))
             .padding(horizontal = 10.dp, vertical = 5.dp)
@@ -185,13 +192,13 @@ internal fun PinCard(
 }
 
 @Composable
-internal fun TrackRow(track: SpotifyTrack, onPin: () -> Unit) {
+internal fun TrackRow(track: TrackResult, onPin: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.surface)
             .clickable(onClick = onPin).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ProviderArtwork(MusicProvider.SPOTIFY, Modifier.size(46.dp))
+        ProviderArtwork(track.provider, Modifier.size(46.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis,

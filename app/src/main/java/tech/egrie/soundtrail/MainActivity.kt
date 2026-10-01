@@ -66,18 +66,27 @@ class MainActivity : ComponentActivity() {
                     onIncomingConsumed = { incomingDraft = null },
                     onLocate = onLocate,
                     onSearch = model::search,
+                    onSelectSearchProvider = model::selectSearchProvider,
                     onConnect = ::connectSpotify,
                     onDisconnect = model::disconnectSpotify,
+                    onConnectSoundcloud = ::connectSoundcloud,
+                    onDisconnectSoundcloud = model::disconnectSoundcloud,
                     onPlay = ::play,
                     onMap = ::showMap,
                     onDelete = model::deletePin,
                     onOpenSpotify = { if (!apps.openSpotify()) model.notify("No app can open Spotify.") },
                     onOpenYoutube = { if (!apps.openYouTubeMusic()) model.notify("No app can open YouTube Music.") },
+                    onOpenSoundcloud = { if (!apps.openSoundCloud()) model.notify("No app can open SoundCloud.") },
                     onOpenDashboard = {
                         if (!apps.openWeb("https://developer.spotify.com/dashboard")) model.notify("No browser found.")
                     },
                     onOpenMicroG = {
                         if (!apps.openWeb("https://microg.org/")) model.notify("No browser found.")
+                    },
+                    onOpenSoundcloudApps = {
+                        if (!apps.openWeb("https://developers.soundcloud.com/docs/api/register-app")) {
+                            model.notify("No browser found.")
+                        }
                     },
                     onSavePin = model::addPin,
                     onNotice = model::notify
@@ -99,14 +108,19 @@ class MainActivity : ComponentActivity() {
     private fun handleIncoming(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_VIEW -> if (intent.data?.scheme == "app.soundtrail") {
-                intent.data?.let(model::finishSpotify)
+                intent.data?.let { uri ->
+                    when (uri.host) {
+                        "spotify-auth" -> model.finishSpotify(uri)
+                        "soundcloud-auth" -> model.finishSoundcloud(uri)
+                    }
+                }
                 clearHandledIntent()
             }
             Intent.ACTION_SEND -> if (intent.type == "text/plain") {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
                 val link = MusicLinkParser.fromText(text)
                 if (link != null) incomingDraft = PinDraft(url = link.url)
-                else model.notify("Share a Spotify track or YouTube Music song link.")
+                else model.notify("Share a Spotify, SoundCloud, or YouTube Music song link.")
                 clearHandledIntent()
             }
         }
@@ -129,6 +143,21 @@ class MainActivity : ComponentActivity() {
             model.notify("Could not open Spotify sign-in in a browser.")
         } catch (e: Exception) {
             model.notify(e.message ?: "Could not start Spotify sign-in.")
+        }
+    }
+
+    private fun connectSoundcloud(id: String, secret: String) {
+        try {
+            val uri = model.beginSoundcloud(id, secret)
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: ActivityNotFoundException) {
+            model.cancelSoundcloud()
+            model.notify("Install a browser to sign in with SoundCloud.")
+        } catch (e: SecurityException) {
+            model.cancelSoundcloud()
+            model.notify("Could not open SoundCloud sign-in in a browser.")
+        } catch (e: Exception) {
+            model.notify(e.message ?: "Could not start SoundCloud sign-in.")
         }
     }
 

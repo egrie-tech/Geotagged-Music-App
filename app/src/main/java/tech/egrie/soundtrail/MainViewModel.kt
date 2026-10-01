@@ -15,10 +15,14 @@ import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.data.PinStore
 import tech.egrie.soundtrail.integrations.DeviceApps
 import tech.egrie.soundtrail.integrations.MusicLinkParser
+import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
-import tech.egrie.soundtrail.integrations.SpotifyTrack
+import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.location.DeviceLocation
 import java.util.UUID
+
+/** Which connected catalog the Search tab queries. */
+internal enum class SearchProvider(val label: String) { SPOTIFY("Spotify"), SOUNDCLOUD("SoundCloud") }
 
 internal data class AppState(
     val pins: List<MusicPin> = emptyList(),
@@ -27,11 +31,17 @@ internal data class AppState(
     val spotifyConnected: Boolean = false,
     val spotifyClientId: String = "",
     val spotifyName: String? = null,
+    val soundcloudConnected: Boolean = false,
+    val soundcloudClientId: String = "",
+    val soundcloudName: String? = null,
     val connecting: Boolean = false,
+    val connectingSoundcloud: Boolean = false,
+    val searchProvider: SearchProvider = SearchProvider.SPOTIFY,
     val searching: Boolean = false,
-    val results: List<SpotifyTrack> = emptyList(),
+    val results: List<TrackResult> = emptyList(),
     val searchError: String? = null,
     val spotifyAppInstalled: Boolean = false,
+    val soundcloudAppInstalled: Boolean = false,
     val youtubeAppInstalled: Boolean = false,
     val servicesLabel: String = "Checking services…"
 )
@@ -48,6 +58,7 @@ internal data class PinInput(
 internal class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val pins = PinStore(application)
     private val spotify = SpotifyService(application)
+    private val soundcloud = SoundCloudService(application)
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
 
@@ -55,7 +66,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         AppState(
             pins = pins.all(),
             spotifyConnected = spotify.connected,
-            spotifyClientId = spotify.clientId
+            spotifyClientId = spotify.clientId,
+            soundcloudConnected = soundcloud.connected,
+            soundcloudClientId = soundcloud.clientId
         )
     )
     val state = _state.asStateFlow()
@@ -66,6 +79,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     init {
         refreshDeviceStatus()
         if (spotify.connected) loadProfile()
+        if (soundcloud.connected) loadSoundcloudProfile()
     }
 
     fun notify(message: String) { _messages.tryEmit(message) }
@@ -74,9 +88,11 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         _state.update {
             it.copy(
                 spotifyAppInstalled = apps.spotifyInstalled,
+                soundcloudAppInstalled = apps.soundcloudInstalled,
                 youtubeAppInstalled = apps.youtubeMusicPackage != null,
                 servicesLabel = apps.servicesLabel,
-                spotifyConnected = spotify.connected
+                spotifyConnected = spotify.connected,
+                soundcloudConnected = soundcloud.connected
             )
         }
     }
@@ -138,21 +154,84 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         notify("Spotify disconnected on this device.")
     }
 
+    fun beginSoundcloud(clientId: String, clientSecret: String): Uri {
+        val uri = soundcloud.beginSignIn(clientId, clientSecret)
+        _state.update {
+            it.copy(soundcloudClientId = soundcloud.clientId, soundcloudConnected = soundcloud.connected)
+        }
+        return uri
+    }
+
+    fun cancelSoundcloud() = soundcloud.cancelSignIn()
+
+    fun finishSoundcloud(uri: Uri) {
+        if (_state.value.connectingSoundcloud) return
+        _state.update { it.copy(connectingSoundcloud = true) }
+        viewModelScope.launch {
+            try {
+                soundcloud.finishSignIn(uri)
+                _state.update { it.copy(soundcloudConnected = true, soundcloudClientId = soundcloud.clientId) }
+                notify("SoundCloud connected. Find a track to pin!")
+                loadSoundcloudProfile()
+            } catch (e: Exception) {
+                notify(e.message ?: "Could not connect SoundCloud.")
+            } finally {
+                _state.update { it.copy(connectingSoundcloud = false, soundcloudConnected = soundcloud.connected) }
+            }
+        }
+    }
+
+    private fun loadSoundcloudProfile() {
+        viewModelScope.launch {
+            // The connection still works when profile lookup is unavailable/offline.
+            val name = runCatching { soundcloud.profileName() }.getOrNull()
+            _state.update { it.copy(soundcloudName = name, soundcloudConnected = soundcloud.connected) }
+        }
+    }
+
+    fun disconnectSoundcloud() {
+        // Clear local state first; the server-side sign-out is best-effort and only
+        // invalidates the exact token captured here, so it cannot race a reconnect.
+        val previous = soundcloud.disconnect()
+        _state.update {
+            it.copy(soundcloudConnected = false, soundcloudName = null, results = emptyList(), searchError = null)
+        }
+        notify("SoundCloud disconnected on this device.")
+        if (previous != null) {
+            viewModelScope.launch { soundcloud.revokeAccessToken(previous) }
+        }
+    }
+
+    fun selectSearchProvider(provider: SearchProvider) {
+        if (_state.value.searchProvider == provider) return
+        _state.update { it.copy(searchProvider = provider, results = emptyList(), searchError = null) }
+    }
+
     fun search(query: String) {
         if (_state.value.searching) return
         if (query.isBlank()) {
             _state.update { it.copy(results = emptyList(), searchError = null) }
             return
         }
+        val provider = _state.value.searchProvider
         _state.update { it.copy(searching = true, results = emptyList(), searchError = null) }
         viewModelScope.launch {
             try {
-                val tracks = spotify.searchTracks(query)
+                val tracks = when (provider) {
+                    SearchProvider.SPOTIFY -> spotify.searchTracks(query)
+                    SearchProvider.SOUNDCLOUD -> soundcloud.searchTracks(query)
+                }
                 _state.update { it.copy(results = tracks) }
             } catch (e: Exception) {
                 _state.update { it.copy(searchError = e.message ?: "Search is unavailable.") }
             } finally {
-                _state.update { it.copy(searching = false, spotifyConnected = spotify.connected) }
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        spotifyConnected = spotify.connected,
+                        soundcloudConnected = soundcloud.connected
+                    )
+                }
             }
         }
     }
@@ -162,7 +241,10 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         val point = input.point
         when {
             input.title.isBlank() -> { notify("Add a song title first."); return false }
-            link == null -> { notify("Use a Spotify track or YouTube Music song link."); return false }
+            link == null -> {
+                notify("Use a Spotify, SoundCloud, or YouTube Music song link.")
+                return false
+            }
             point == null || !point.isValid() -> {
                 notify("Find your location or enter valid coordinates."); return false
             }

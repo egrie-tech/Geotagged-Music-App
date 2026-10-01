@@ -9,6 +9,7 @@
     <!-- Android 11+ limits package visibility. These are only used for app-status checks and handoff. -->
     <queries>
         <package android:name="com.spotify.music" />
+        <package android:name="com.soundcloud.android" />
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="app.revanced.android.youtube.music" />
         <package android:name="app.revanced.android.gms" />
@@ -36,6 +37,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="app.soundtrail" android:host="spotify-auth" />
+            </intent-filter>
+            <!-- Register this EXACT URI in your SoundCloud API app settings. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.soundtrail" android:host="soundcloud-auth" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

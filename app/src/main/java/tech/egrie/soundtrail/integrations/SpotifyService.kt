@@ -2,18 +2,12 @@ package tech.egrie.soundtrail.integrations
 
 import android.content.Context
 import android.net.Uri
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 
 const val SPOTIFY_REDIRECT_URI = "app.soundtrail://spotify-auth"
-
-data class SpotifyTrack(val title: String, val artist: String, val url: String)
 
 class SpotifyException(message: String) : Exception(message)
 
@@ -76,9 +70,9 @@ class SpotifyService(context: Context) {
         }
         val code = uri.getQueryParameter("code")
             ?: throw SpotifyException("Spotify did not return an authorization code.")
-        val response = request(
+        val response = httpRequest(
             "https://accounts.spotify.com/api/token", "POST",
-            form(
+            body = form(
                 "grant_type" to "authorization_code",
                 "code" to code,
                 "redirect_uri" to SPOTIFY_REDIRECT_URI,
@@ -101,7 +95,7 @@ class SpotifyService(context: Context) {
             ?: json.optString("id", "Spotify listener")
     }
 
-    suspend fun searchTracks(query: String): List<SpotifyTrack> {
+    suspend fun searchTracks(query: String): List<TrackResult> {
         if (query.isBlank()) return emptyList()
         val encoded = URLEncoder.encode(query.trim().take(100), "UTF-8")
         val json = JSONObject(apiGet("search?type=track&limit=10&q=$encoded"))
@@ -114,20 +108,23 @@ class SpotifyService(context: Context) {
             val artist = if (artists == null) "Unknown artist" else (0 until artists.length())
                 .mapNotNull { artists.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
                 .joinToString(", ").ifBlank { "Unknown artist" }
-            SpotifyTrack(
-                title = track.optString("name", "Untitled"),
+            TrackResult(
+                title = track.optString("name", "Untitled").take(120),
                 artist = artist,
-                url = "https://open.spotify.com/track/$id"
+                url = "https://open.spotify.com/track/$id",
+                provider = MusicProvider.SPOTIFY
             )
         }
     }
 
     private suspend fun apiGet(path: String): String {
-        val first = request("https://api.spotify.com/v1/$path", bearer = accessToken())
+        val first = httpRequest("https://api.spotify.com/v1/$path", authorization = "Bearer ${accessToken()}")
         if (first.code in 200..299) return first.body
         if (first.code == 401) {
             // A token can be revoked before its reported expiry. Refresh once, never loop.
-            val retry = request("https://api.spotify.com/v1/$path", bearer = accessToken(forceRefresh = true))
+            val retry = httpRequest(
+                "https://api.spotify.com/v1/$path", authorization = "Bearer ${accessToken(forceRefresh = true)}"
+            )
             if (retry.code in 200..299) return retry.body
             throw retry.error()
         }
@@ -139,9 +136,9 @@ class SpotifyService(context: Context) {
         if (!forceRefresh && old.expiresAt > System.currentTimeMillis() + 60_000) {
             return@withLock old.access
         }
-        val response = request(
+        val response = httpRequest(
             "https://accounts.spotify.com/api/token", "POST",
-            form("grant_type" to "refresh_token", "refresh_token" to old.refresh, "client_id" to old.clientId)
+            body = form("grant_type" to "refresh_token", "refresh_token" to old.refresh, "client_id" to old.clientId)
         )
         if (response.code !in 200..299) {
             if (response.code == 400 || response.code == 401) {
@@ -194,53 +191,16 @@ class SpotifyService(context: Context) {
         val access: String, val refresh: String, val clientId: String, val expiresAt: Long
     )
 
-    private data class HttpResponse(val code: Int, val body: String) {
-        fun error(): SpotifyException {
-            val detail = runCatching {
-                val json = JSONObject(body)
-                json.optString("error_description").ifBlank {
-                    json.optJSONObject("error")?.optString("message").orEmpty()
-                }
-            }.getOrDefault("")
-            val fallback = when (code) {
-                400 -> "Spotify rejected this request. Check your Client ID and try again."
-                401 -> "Spotify authorization failed. Reconnect your account."
-                403 -> "Spotify denied access. Check your Developer app's allowed users and Premium requirements."
-                429 -> "Spotify is rate-limiting requests. Try again later."
-                else -> "Spotify is unavailable (HTTP $code). Try again later."
-            }
-            return SpotifyException(detail.takeIf { it.isNotBlank() && code != 403 } ?: fallback)
+    private fun HttpResponse.error(): SpotifyException {
+        val detail = detail()
+        val fallback = when (code) {
+            400 -> "Spotify rejected this request. Check your Client ID and try again."
+            401 -> "Spotify authorization failed. Reconnect your account."
+            403 -> "Spotify denied access. Check your Developer app's allowed users and Premium requirements."
+            429 -> "Spotify is rate-limiting requests. Try again later."
+            else -> "Spotify is unavailable (HTTP $code). Try again later."
         }
-    }
-
-    private suspend fun request(
-        address: String, method: String = "GET", body: String? = null, bearer: String? = null
-    ): HttpResponse = withContext(Dispatchers.IO) {
-        val connection = (URL(address).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            instanceFollowRedirects = false
-            connectTimeout = 10_000
-            readTimeout = 10_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Cache-Control", "no-store")
-            bearer?.let { setRequestProperty("Authorization", "Bearer $it") }
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            }
-        }
-        try {
-            if (body != null) connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            HttpResponse(code, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun form(vararg params: Pair<String, String>): String = params.joinToString("&") { (key, value) ->
-        "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+        return SpotifyException(detail.takeIf { it.isNotBlank() && code != 403 } ?: fallback)
     }
 
     companion object {

@@ -18,6 +18,7 @@ class DeviceApps(private val context: Context) {
     }
 
     val spotifyInstalled: Boolean get() = installed("com.spotify.music")
+    val soundcloudInstalled: Boolean get() = installed("com.soundcloud.android")
     val youtubeMusicPackage: String? get() = listOf(
         "com.google.android.apps.youtube.music", "app.revanced.android.youtube.music"
     ).firstOrNull(::installed)
@@ -35,6 +36,7 @@ class DeviceApps(private val context: Context) {
         val preferredPackage = when (verified.provider) {
             MusicProvider.SPOTIFY -> "com.spotify.music".takeIf(::installed)
             MusicProvider.YOUTUBE_MUSIC -> youtubeMusicPackage
+            MusicProvider.SOUNDCLOUD -> "com.soundcloud.android".takeIf(::installed)
         }
         if (preferredPackage != null && view(verified.url, preferredPackage)) return true
         return view(verified.url)
@@ -42,6 +44,7 @@ class DeviceApps(private val context: Context) {
 
     fun openYouTubeMusic(): Boolean = launch(youtubeMusicPackage) || view("https://music.youtube.com/")
     fun openSpotify(): Boolean = launch("com.spotify.music".takeIf(::installed)) || view("https://open.spotify.com/")
+    fun openSoundCloud(): Boolean = launch("com.soundcloud.android".takeIf(::installed)) || view("https://soundcloud.com/")
     fun openWeb(url: String): Boolean = view(url)
 
     fun showOnMap(point: GeoPoint): Boolean {
