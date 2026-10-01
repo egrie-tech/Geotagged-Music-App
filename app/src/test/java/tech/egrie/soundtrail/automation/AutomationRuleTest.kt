@@ -73,8 +73,9 @@ class AutomationRuleTest {
         fun due(nowMs: Long) = AutomationEngine.due(listOf(rule), context, nowMs) { fired[it] }
 
         val cooldownMs = rule.cooldownMinutes * 60_000L
-        assertTrue(due(1_000_000L + cooldownMs).isEmpty())
         assertTrue(due(1_000_000L + cooldownMs - 1).isEmpty())
+        // Exactly one cooldown later, and any time after, the rule is due again.
+        assertEquals(listOf(rule), due(1_000_000L + cooldownMs))
         assertEquals(listOf(rule), due(1_000_000L + cooldownMs + 1))
         // A rule that has never fired is due immediately.
         assertTrue(AutomationEngine.due(listOf(rule), context, 0L) { null }.isNotEmpty())
