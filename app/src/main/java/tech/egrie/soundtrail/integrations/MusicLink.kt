@@ -5,7 +5,12 @@ import java.net.URLDecoder
 
 /** Only known song URLs are opened. Strip tracking parameters and refuse untrusted hosts. */
 enum class MusicProvider(val label: String) {
-    SPOTIFY("Spotify"), YOUTUBE_MUSIC("YouTube Music"), SOUNDCLOUD("SoundCloud")
+    SPOTIFY("Spotify"),
+    YOUTUBE_MUSIC("YouTube Music"),
+    SOUNDCLOUD("SoundCloud"),
+
+    /** A song on the user's own Jellyfin server; played by Soundtrail itself, not an app. */
+    JELLYFIN("Jellyfin")
 }
 
 data class MusicLink(val provider: MusicProvider, val url: String)
@@ -45,6 +50,9 @@ object MusicLinkParser {
                 MusicLink(MusicProvider.SPOTIFY, "https://open.spotify.com/track/$id")
             } else null
         }
+
+        // A Jellyfin item reference: just an id, so no server address or token is ever stored.
+        JellyfinRef.itemId(value)?.let { itemId -> return JellyfinRef.link(itemId) }
 
         val uri = runCatching { URI(value) }.getOrNull() ?: return null
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.userInfo != null ||

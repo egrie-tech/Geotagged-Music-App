@@ -26,6 +26,7 @@ import tech.egrie.soundtrail.data.PlaylistItem
 import tech.egrie.soundtrail.integrations.DeviceApps
 import tech.egrie.soundtrail.integrations.MusicLink
 import tech.egrie.soundtrail.integrations.MusicLinkParser
+import tech.egrie.soundtrail.integrations.MusicProvider
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
 import tech.egrie.soundtrail.ui.ListsActions
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsState()
+            val nowPlaying by model.player.state.collectAsState()
             val permissionRequest = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
             ) { grants ->
@@ -105,6 +107,7 @@ class MainActivity : ComponentActivity() {
                     incomingDraft = incomingDraft,
                     onIncomingConsumed = { incomingDraft = null },
                     openListsSignal = listsOpenSignal,
+                    nowPlaying = nowPlaying,
                     lists = ListsActions(
                         onToggleWatch = toggleWatch,
                         onToggleAutoSearch = model::setAutoSearchYoutube,
@@ -124,7 +127,12 @@ class MainActivity : ComponentActivity() {
                         onGetSong = { item ->
                             // Hand the link to apps the user installed (e.g. a yt-dlp
                             // frontend). Soundtrail performs no downloading itself.
-                            val target = item.url ?: YouTubeSearch.searchUrl(item.title, item.artist)
+                            val link = item.url?.let(MusicLinkParser::parse)
+                            val target = if (link != null && link.provider == MusicProvider.JELLYFIN) {
+                                model.jellyfinWebUrl(link) ?: link.url
+                            } else {
+                                item.url ?: YouTubeSearch.searchUrl(item.title, item.artist)
+                            }
                             if (!apps.shareUrl(target)) model.notify("Nothing can receive this link.")
                         },
                         onImportAudio = { playlistId, item ->
@@ -147,6 +155,11 @@ class MainActivity : ComponentActivity() {
                     onDisconnect = model::disconnectSpotify,
                     onConnectSoundcloud = ::connectSoundcloud,
                     onDisconnectSoundcloud = model::disconnectSoundcloud,
+                    onConnectJellyfin = model::connectJellyfin,
+                    onDisconnectJellyfin = model::disconnectJellyfin,
+                    onOpenJellyfin = { if (!apps.openWeb(model.jellyfinServerUrl())) model.notify("No browser found.") },
+                    onTogglePlayback = model::togglePlayback,
+                    onStopPlayback = model::stopPlayback,
                     onPlay = ::play,
                     onMap = ::showMap,
                     onDelete = model::deletePin,
@@ -174,6 +187,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::model.isInitialized) model.refreshDeviceStatus()
+    }
+
+    override fun onDestroy() {
+        // Playback belongs to this app: closing it stops the stream instead of leaving it behind.
+        if (isFinishing && ::model.isInitialized) model.stopPlayback()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -249,8 +268,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Jellyfin songs stream inside Soundtrail; everything else is handed to the user's apps. */
     private fun play(pin: MusicPin) {
-        if (!apps.play(MusicLink(pin.provider, pin.url))) {
+        val link = MusicLink(pin.provider, pin.url)
+        if (link.provider == MusicProvider.JELLYFIN) {
+            model.playJellyfin(link, pin.title, pin.artist)
+            return
+        }
+        if (!apps.play(link)) {
             model.notify("No app can open this song link.")
         }
     }
@@ -261,6 +286,10 @@ class MainActivity : ComponentActivity() {
         val url = item.url
         if (url != null) {
             val link = MusicLinkParser.parse(url)
+            if (link != null && link.provider == MusicProvider.JELLYFIN) {
+                model.playJellyfin(link, item.title, item.artist)
+                return
+            }
             if ((link != null && apps.play(link)) || apps.openWeb(url)) return
         }
         if (!apps.openWeb(YouTubeSearch.searchUrl(item.title, item.artist))) {

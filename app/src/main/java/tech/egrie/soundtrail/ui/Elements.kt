@@ -19,11 +19,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.integrations.MusicProvider
 import tech.egrie.soundtrail.integrations.TrackResult
+import tech.egrie.soundtrail.playback.NowPlaying
 import java.util.Locale
 
 internal val cardShape = RoundedCornerShape(22.dp)
@@ -119,6 +123,7 @@ internal fun ProviderArtwork(provider: MusicProvider, modifier: Modifier = Modif
         MusicProvider.SPOTIFY -> listOf(Palette.primaryDark, Color(0xFF5A6740))
         MusicProvider.YOUTUBE_MUSIC -> listOf(Color(0xFF49313D), Color(0xFF9B5960))
         MusicProvider.SOUNDCLOUD -> listOf(Color(0xFF4A2E1A), Color(0xFF9C4A1F))
+        MusicProvider.JELLYFIN -> listOf(Color(0xFF2E2440), Color(0xFF7A4E9B))
     }
     Box(
         modifier.size(55.dp).clip(RoundedCornerShape(15.dp))
@@ -135,6 +140,7 @@ internal fun ProviderPill(provider: MusicProvider) {
         MusicProvider.SPOTIFY -> Palette.spotify
         MusicProvider.YOUTUBE_MUSIC -> Palette.youtube
         MusicProvider.SOUNDCLOUD -> Palette.soundcloud
+        MusicProvider.JELLYFIN -> Palette.jellyfin
     }
     Box(
         Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = .13f))
@@ -215,4 +221,75 @@ internal fun formatDistance(meters: Double): String = if (meters < 1_000) {
     "${meters.toInt()} m away"
 } else {
     String.format(Locale.getDefault(), "%.1f km away", meters / 1_000)
+}
+
+/**
+ * The bar above the tabs while a song streams from the user's Jellyfin server. Playback is
+ * deliberately inside the app: no media session, no notification, no background service.
+ */
+@Composable
+internal fun NowPlayingBar(nowPlaying: NowPlaying, onToggle: () -> Unit, onStop: () -> Unit) {
+    val fraction = if (nowPlaying.durationMs > 0L) {
+        (nowPlaying.positionMs.toFloat() / nowPlaying.durationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Column(
+        Modifier.fillMaxWidth().background(Palette.surface)
+            .border(1.dp, Palette.border.copy(alpha = .7f))
+    ) {
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Palette.elevated)) {
+            Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(Palette.jellyfin))
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(38.dp).background(Palette.jellyfin.copy(alpha = .18f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.MusicNote, null, tint = Palette.jellyfin,
+                    modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(nowPlaying.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium)
+                val detail = nowPlaying.error ?: listOfNotNull(
+                    nowPlaying.artist.takeIf(String::isNotBlank),
+                    if (nowPlaying.buffering) "Buffering…" else playbackTime(nowPlaying)
+                ).joinToString(" · ")
+                Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (nowPlaying.error != null) Palette.coral else Palette.secondary,
+                    style = MaterialTheme.typography.labelMedium)
+            }
+            if (nowPlaying.buffering) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+            } else if (nowPlaying.error == null) {
+                IconButton(onClick = onToggle, Modifier.size(40.dp)) {
+                    if (nowPlaying.playing) {
+                        Icon(Icons.Rounded.Pause, "Pause ${nowPlaying.title}", tint = Palette.primary)
+                    } else {
+                        Icon(Icons.Rounded.PlayArrow, "Play ${nowPlaying.title}", tint = Palette.primary)
+                    }
+                }
+            }
+            IconButton(onClick = onStop, Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Close, "Stop streaming", tint = Palette.muted)
+            }
+        }
+    }
+}
+
+private fun playbackTime(nowPlaying: NowPlaying): String = if (nowPlaying.durationMs <= 0L) {
+    formatClock(nowPlaying.positionMs)
+} else {
+    "${formatClock(nowPlaying.positionMs)} / ${formatClock(nowPlaying.durationMs)}"
+}
+
+private fun formatClock(milliseconds: Long): String {
+    val totalSeconds = (milliseconds / 1_000L).coerceAtLeast(0L)
+    return String.format(Locale.getDefault(), "%d:%02d", totalSeconds / 60, totalSeconds % 60)
 }

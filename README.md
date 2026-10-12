@@ -1,6 +1,6 @@
 # Soundtrail — music for the places you love
 
-An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** song links as private, location-based pins, with a free **song lookup** (TheAudioDB), local **playlists** with **imported offline audio**, and opt-in **automations** that trigger a playlist from a place, a way of moving (driving/running/walking), or a time window.
+An Android app that saves **Spotify**, **YouTube Music**, **SoundCloud**, and **your own Jellyfin server's** songs as private, location-based pins, with a free **song lookup** (TheAudioDB), local **playlists** with **imported offline audio**, and opt-in **automations** that trigger a playlist from a place, a way of moving (driving/running/walking), or a time window.
 
 ## What connects, and how
 
@@ -8,6 +8,7 @@ An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** son
 | --- | --- |
 | Spotify | Authorization Code **with PKCE** (no client secret). Search for tracks with the official Web API; tap a pin to open playback in Spotify or a browser. Tokens are encrypted with Android Keystore. |
 | SoundCloud | Authorization Code **with PKCE** (OAuth 2.1) against `secure.soundcloud.com`. Search for tracks with the official API; tap a pin to open playback in SoundCloud or a browser. Tokens **and the Client Secret** are encrypted with Android Keystore. Requires an API app on SoundCloud's side — see below. |
+| Jellyfin (your own server) | Username + password sign-in against **your** Jellyfin server (`/Users/AuthenticateByName`), then read-only library search and in-app streaming of the songs you already host. The password is used once and **never stored**; the returned access token is encrypted with Android Keystore. Works over HTTPS **or** plain HTTP on your home network. |
 | Song lookup (TheAudioDB) | **Free, no account.** Enter artist + title to get exact names, album, genre/mood, and — when TheAudioDB knows one — a Spotify or YouTube link that passes the same allowlist. Metadata only; nothing is stored. |
 | YouTube | Links are opened in YouTube's own apps or a browser. Adding a song can auto-open YouTube **search results** (toggleable). The **Get** button hands a song's link to *apps you installed* — such as a yt-dlp frontend or Termux — via the standard share sheet. Soundtrail bundles no downloader, scrapes nothing, and streams nothing; playback, saving, and any downloading are entirely your tools' and your responsibility. |
 | Your audio files | Import audio you already have (including MP3s you made with external tools such as yt-dlp) into a playlist. Files are copied into private app storage and played offline in your chosen music player. |
@@ -16,7 +17,8 @@ An Android app that saves **Spotify**, **YouTube Music**, and **SoundCloud** son
 
 ## Playlists & automations
 
-- **Playlists** (Lists tab) are named groups of songs stored on the device. A song needs a title; a supported link (Spotify / YouTube Music / SoundCloud) is optional — without one, tapping play searches YouTube for it.
+- **Playlists** (Lists tab) are named groups of songs stored on the device. A song needs a title; a supported link (Spotify / YouTube Music / SoundCloud / Jellyfin) is optional — without one, tapping play searches YouTube for it.
+- **Jellyfin songs** are stored as *item references* (`jellyfin:item:<id>`), never as server URLs: no address, username, or token ends up in a pin, a playlist, or a shared backup, and the same song keeps working after your server moves to another host or port. Playback is resolved against the current connection whenever you tap play, and streamed **inside Soundtrail** by the now-playing bar above the tabs — direct play first, with an automatic transcode to MP3 if your device's decoder cannot open the stored format.
 - **Get a song (external downloader handoff):** the ⬇ button shares the song's link (or its YouTube search URL) through the Android share sheet so **your own installed tools** receive it — a yt-dlp GUI frontend, Termux, or anything else. Soundtrail targets no app and performs no downloading; what your tools do is between you, your tools, and the content's rights holders.
 - **Import audio:** the ♪ button attaches an audio file from your device to a playlist song. The file is copied into private storage and shows as *On device*; tapping play opens it in your music player, fully offline. Removing the song or playlist deletes the copy.
 - **Automations** point a playlist at conditions: *near a saved spot (20–2000 m radius)*, *while walking / running / driving*, and/or *between two times of day*. Set any combination; all set conditions must hold at once.
@@ -73,13 +75,39 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 
    Soundtrail uses the OAuth 2.1 Authorization Code flow with PKCE (`display=popup` for the mobile screen), exchanges the code at `secure.soundcloud.com/oauth/token`, and requests only `/me` and `/tracks` search. Access tokens expire after about an hour; refresh tokens are single-use and handled automatically.
 
-6. To use YouTube Music with microG, configure microG **and sign in within your own compatible YouTube Music app**. Soundtrail can open that app and receive shared links; no YouTube Music OAuth permission or microG SDK is required here.
+6. To use **Jellyfin**, install (or point at) your own Jellyfin server, open the **Connect** tab, and enter:
+
+   - the **server address**, for example `http://192.168.1.20:8096` — plain HTTP is fine on your own network, HTTPS works too, and a sub-path behind a reverse proxy (`https://music.example.com/jellyfin`) is accepted;
+   - a **username** and **password**. The password is sent once to that server and never stored. `GET /System/Info/Public` is checked first, so a wrong address or an unrelated web server is reported as such instead of looking like a bad password.
+
+   Soundtrail then searches that library from the **Search** tab (pick the *Jellyfin* chip) and streams what you pin. Access is read-only: nothing is uploaded, renamed, or deleted, and the app never writes to the library.
+
+7. To use YouTube Music with microG, configure microG **and sign in within your own compatible YouTube Music app**. Soundtrail can open that app and receive shared links; no YouTube Music OAuth permission or microG SDK is required here.
+
+## Releases
+
+Every pull request **merged into `main`** bumps the version by one patch and publishes a release. The `Release on merge` workflow (`.github/workflows/release.yml`):
+
+1. adds 1 to `versionCode` and `0.0.1` to `versionName` in `app/build.gradle.kts` (via `.github/scripts/bump_version.py`, which also skips any patch whose `vX.Y.Z` tag already exists),
+2. builds `:app:assembleDebug` **before** pushing anything, so a broken build leaves `main` untouched,
+3. commits `Bump version to X.Y.Z [skip ci]` to `main`, tags `vX.Y.Z`, and pushes both,
+4. creates the GitHub Release `Soundtrail X.Y.Z` with generated notes (the merged pull requests) and the debug APK attached as `soundtrail-X.Y.Z-debug.apk`.
+
+Details worth knowing:
+
+- **It cannot loop.** The bump is pushed with the workflow's own token, and pushes made with `GITHUB_TOKEN` do not start further workflow runs.
+- **Closing a pull request without merging does nothing**; the job is skipped unless `pull_request.merged` is true. A pull request merged into a branch other than `main` is ignored too.
+- **Concurrent merges are serialized** by a `concurrency` group, so two merges cannot claim the same version number.
+- **Branch protection:** the workflow needs to be allowed to push to `main`. If a rule requires pull requests for `main`, allow the GitHub Actions bot to bypass it (Settings → Branches → the `main` rule), otherwise the job fails with a message saying exactly that. The workflow requests `permissions: contents: write` for the same reason.
+- **Manual runs:** the workflow also has `workflow_dispatch`, so *Actions → Release on merge → Run workflow* bumps and releases on demand (it always operates on `main`).
+- The attached APK is the **debug** build, which is installable but debug-signed; there is no signing configuration in this repository for a Play-ready release build.
+- CI note: because the bump is pushed with `GITHUB_TOKEN`, the separate `Android build` workflow does not re-run for that commit — the release workflow compiles the same code itself.
 
 ## Permissions, and why
 
 | Permission | Used for |
 | --- | --- |
-| Internet | Provider search APIs and TheAudioDB lookups |
+| Internet | Provider search APIs, TheAudioDB lookups, and your own Jellyfin server |
 | Coarse/Fine location | Pinning, sorting pins, and the opt-in automation watch |
 | Foreground service (+ location type) | The watch's persistent, visible automation service — opt-in only |
 | Post notifications | The watch status and automation trigger notifications (Android 13+) |
@@ -89,6 +117,7 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 - **Explore:** tap **Drop a pin**. Enter a song title and a supported link. Use **Locate** or enter coordinates manually; name the place and save.
 - **Search:** connect Spotify or SoundCloud and switch the provider chip, use the **free TheAudioDB lookup** (artist + title, no account), or paste a `music.youtube.com/watch?v=…` link.
 - **Share:** in Spotify, YouTube Music, or SoundCloud, share a **song** link to Soundtrail to open a prefilled pin editor.
+- **Jellyfin:** connect your server on the Connect tab, pick the *Jellyfin* chip on the Search tab, and pin what you find. Pinned Jellyfin songs and playlists play in the now-playing bar; **⬇ Get** shares a link to the item in Jellyfin's own web client for anyone else on that server.
 - **Lists:** create a playlist, add songs (link optional), use **⬇ Get** to hand a link to your installed tools and **♪** to attach the resulting audio file for offline play, then turn on the watch. Create an automation — for example, *"Morning commute" → playlist "Drive" · while driving · 07:00–09:00* — and tap the notification when it fires.
 - Supported links: `open.spotify.com/track/<id>`, `spotify:track:<id>`, `music.youtube.com/watch?v=<id>`, `youtube.com/watch?v=<id>`, `youtu.be/<id>`, `soundcloud.com/<artist>/<track>` (including `www.`/`m.` hosts and `/s-<token>` secret trails), and `on.soundcloud.com/<token>` or `soundcloud.app.goo.gl/<token>` share links. Tracking parameters are removed. Playlists, artist profiles, site pages, and unknown domains are rejected.
 
@@ -98,6 +127,8 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 - Location is requested on demand for pins. The automation watch is a separate, explicit opt-in: a foreground service with a persistent notification that Android shows at all times while it runs. Turn the toggle off and every watch process stops.
 - Spotify and SoundCloud tokens (and SoundCloud's Client Secret) and the short-lived PKCE verifier/state are stored with Android Keystore AES-GCM. Backups are disabled. Disconnect removes tokens from this device; SoundCloud disconnect also makes a best-effort `sign-out` call. Revoke access any time from your provider account settings.
 - TheAudioDB lookups send the artist and title you type and store nothing. Lookup-offered links must pass the same URL allowlist as manual links.
+- **Jellyfin playback stays in the foreground of this app.** There is no media session, no playback notification, and no background service: playback ends when you close Soundtrail, and a song streams only while the app is running. Nothing is downloaded or cached, and the access token travels in a request header rather than in a URL.
+- **Plain HTTP is permitted for the address you type yourself.** A home Jellyfin server usually speaks `http://`, and the platform's security config cannot know your server's address in advance, so `network_security_config.xml` allows cleartext traffic for the app. Soundtrail still contacts only the address you entered — every other provider API stays HTTPS-only, and certificates are validated against the system trust store with user-installed CAs never trusted.
 - Soundtrail does **not** download, scrape, or re-host YouTube content. The YouTube integration is search-and-handoff only, by design and per YouTube's Terms of Service.
 - Motion detection is a GPS-speed estimate, not a sensor fusion product: expect misses at poor accuracy, and driving/running thresholds are approximate. Automations use cooldown-based re-arming (15 minutes), not edge triggering, so a rule can re-fire after its cooldown if conditions still hold.
 - Without a location fix, use manual coordinates to create pins; without a maps app, viewing a place falls back to OpenStreetMap in a browser.
@@ -109,6 +140,6 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Unit tests cover URL allowlisting/canonicalization (Spotify, YouTube Music, SoundCloud), TheAudioDB response parsing, motion classification bands, automation condition evaluation (place radius, motion kind, time windows including midnight wrap) with cooldown-based triggering, YouTube search URL building, coordinate validation/distance, and the RFC 7636 PKCE challenge. The GitHub Actions Android workflow runs the same build and uploads a debug APK.
+Unit tests cover URL allowlisting/canonicalization (Spotify, YouTube Music, SoundCloud, and Jellyfin item references), TheAudioDB response parsing, Jellyfin server-address normalization, its authorization header and JSON payload shapes, library search request building/full URL encoding, library item parsing, stream URL construction (direct play plus transcode fallback), motion classification bands, automation condition evaluation (place radius, motion kind, time windows including midnight wrap) with cooldown-based triggering, YouTube search URL building, coordinate validation/distance, and the RFC 7636 PKCE challenge. The GitHub Actions Android workflow runs the same build and uploads a debug APK, and the `Release on merge` workflow builds, tags, and releases each merged pull request.
 
-Documentation: [Spotify PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow) · [SoundCloud API guide](https://developers.soundcloud.com/docs/api/guide) · [SoundCloud app registration](https://developers.soundcloud.com/docs/api/register-app) · [TheAudioDB free music API](https://www.theaudiodb.com/free_music_api) · [Foreground service types](https://developer.android.com/about/versions/14/changes/fgs-types-required) · [microG](https://microg.org/)
+Documentation: [Jellyfin API](https://api.jellyfin.org/) · [Jellyfin authentication](https://jellyfin.org/docs/general/administration/configuration/#security) · [Spotify PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow) · [SoundCloud API guide](https://developers.soundcloud.com/docs/api/guide) · [SoundCloud app registration](https://developers.soundcloud.com/docs/api/register-app) · [TheAudioDB free music API](https://www.theaudiodb.com/free_music_api) · [Foreground service types](https://developer.android.com/about/versions/14/changes/fgs-types-required) · [microG](https://microg.org/)

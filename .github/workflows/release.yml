@@ -1,0 +1,77 @@
+name: Release on merge
+
+# Every pull request merged into main bumps the patch version (versionCode +1,
+# versionName +0.0.1) and publishes a release with generated notes and the debug APK.
+# This cannot loop: the bump is pushed by the workflow token, and pushes made with that
+# token do not start further workflow runs.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two merges in a row must not race for the same version number.
+concurrency:
+  group: release-on-merge
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Closing a pull request without merging must not release anything.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Bump the patch version
+        id: bump
+        run: python3 .github/scripts/bump_version.py
+
+      # Built before anything is pushed: a broken build must leave main untouched.
+      - name: Build the release APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Commit, tag, and push the bump
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to ${{ steps.bump.outputs.version }} [skip ci]"
+          git tag "v${{ steps.bump.outputs.version }}"
+          if ! git push origin HEAD:main; then
+            echo "::error title=Cannot push the version bump::Direct pushes to main were rejected. Allow GitHub Actions to bypass the branch protection rule for main (Settings, Branches), or push the version bump yourself."
+            exit 1
+          fi
+          git push origin "v${{ steps.bump.outputs.version }}"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          ASSET: ${{ steps.bump.outputs.asset }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
+          notes="Soundtrail $VERSION — version bumped and released automatically when the pull request was merged. The attached APK is the debug build (debug-signed, installable side by side with nothing else)."
+          if [ -n "${PR_NUMBER:-}" ]; then
+            notes="$notes"$'\n\n'"Merged: #$PR_NUMBER $PR_TITLE"
+          fi
+          gh release create "v$VERSION" "$ASSET" \
+            --target main \
+            --title "Soundtrail $VERSION" \
+            --notes "$notes" \
+            --generate-notes
