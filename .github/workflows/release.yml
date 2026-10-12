@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
-          notes="Soundtrail $VERSION — version bumped and released automatically when the pull request was merged. The attached APK is the debug build (debug-signed, installable side by side with nothing else)."
+          notes="Soundtrail $VERSION — version bumped and released automatically when the pull request was merged. The attached APK is the debug build, signed with the shared debug key committed at keystore/soundtrail-debug.p12, so it installs as an update over earlier releases (an APK installed before that key existed needs one uninstall first — see the README)."
           if [ -n "${PR_NUMBER:-}" ]; then
             notes="$notes"$'\n\n'"Merged: #$PR_NUMBER $PR_TITLE"
           fi

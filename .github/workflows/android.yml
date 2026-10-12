@@ -47,3 +47,28 @@ jobs:
         with:
           name: soundtrail-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # The APK has to be signed with the key committed in the repository: a key that
+      # changes per build makes Android reject the next sideloaded update with
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE. Compare fingerprints, and only fail on a
+      # real mismatch so a wording change in either tool cannot redden the build.
+      # (No `pipefail` here: the greps below are allowed to come up empty.)
+      - name: Check the APK signing key
+        shell: bash
+        run: |
+          set -eu
+          compute_sha() {
+            tr -d ':' | grep -oiE '[0-9a-f]{64}' | head -1 | tr 'A-F' 'a-f'
+          }
+          build_tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          apk_sha="$("$build_tools/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep -i 'certificate SHA-256 digest' | compute_sha || true)"
+          key_sha="$(keytool -list -keystore keystore/soundtrail-debug.p12 -storetype PKCS12 \
+            -storepass android -alias androiddebugkey \
+            | grep -i 'fingerprint (SHA-256)' | compute_sha || true)"
+          echo "APK signer SHA-256: ${apk_sha:-<not reported>}"
+          echo "keystore SHA-256  : ${key_sha:-<not reported>}"
+          if [ -n "$apk_sha" ] && [ -n "$key_sha" ] && [ "$apk_sha" != "$key_sha" ]; then
+            echo "::error title=Debug APK signed with the wrong key::app-debug.apk was not signed with keystore/soundtrail-debug.p12, so sideloaded updates would fail with INSTALL_FAILED_UPDATE_INCOMPATIBLE."
+            exit 1
+          fi

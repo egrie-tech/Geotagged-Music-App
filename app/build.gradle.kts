@@ -4,6 +4,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Every debug build — local, CI, and the APKs attached to releases — is signed with
+// this one committed key. Android's default debug key lives in ~/.android/debug.keystore
+// and is generated per machine, and a GitHub Actions runner is thrown away after every
+// job, so each build used to get a different certificate. Android then refuses to install
+// a new APK over the installed app:
+//   INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package ... signatures do not match
+// The credentials below are the well-known public Android debug ones (androiddebugkey /
+// android). This key is for sideloaded debug builds only — never for a release upload.
+val sharedDebugKeystore = rootProject.file("keystore/soundtrail-debug.p12")
+check(sharedDebugKeystore.isFile) {
+    "Missing ${sharedDebugKeystore.path}. All debug builds must share one signing key so " +
+        "that a new APK updates an installed one; restore keystore/soundtrail-debug.p12 from git."
+}
+
 android {
     namespace = "tech.egrie.soundtrail"
     compileSdk = 35
@@ -17,7 +31,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("sharedDebug") {
+            storeFile = sharedDebugKeystore
+            storeType = "PKCS12"
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("sharedDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

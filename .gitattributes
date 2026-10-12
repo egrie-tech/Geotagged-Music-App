@@ -1,0 +1,6 @@
+# Keystores are binary: keep line-ending conversion away from them, whatever a
+# contributor's core.autocrlf is set to. keystore/soundtrail-debug.p12 is committed
+# on purpose (one shared debug key for local, CI, and released APKs).
+*.p12 binary
+*.jks binary
+*.keystore binary

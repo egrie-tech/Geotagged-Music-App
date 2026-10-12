@@ -58,6 +58,8 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
    adb install app/build/outputs/apk/debug/app-debug.apk
    ```
 
+   Debug builds are signed with the key committed at `keystore/soundtrail-debug.p12` — the standard public debug credentials, `androiddebugkey` / `android` — rather than the per-machine `~/.android/debug.keystore`. Your build, the CI build, and every published release therefore share one signature, so a newer APK installs straight over an older one as an update. See *Updating an installed build* below for the one-time exception.
+
 3. Optionally install Spotify, YouTube Music, and/or SoundCloud. An installed music app is **not** required for saving a pin; a browser can open supported links.
 4. To use Spotify **search**: create an app at [Spotify for Developers](https://developer.spotify.com/dashboard), register the exact redirect URI below, and enter the app's public **Client ID** on the **Connect** tab. Do **not** enter a client secret.
 
@@ -84,6 +86,26 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 
 7. To use YouTube Music with microG, configure microG **and sign in within your own compatible YouTube Music app**. Soundtrail can open that app and receive shared links; no YouTube Music OAuth permission or microG SDK is required here.
 
+### Updating an installed build (signature mismatch)
+
+Android will not install an APK over an existing app when the two were signed with different certificates, and reports:
+
+```text
+adb: failed to install soundtrail-X.Y.Z-debug.apk: Failure
+[INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package tech.egrie.soundtrail signatures do not match newer version; ignoring!]
+```
+
+That means the installed copy carries a different signing key than the APK in your hand. The usual cause is an APK built before the shared debug key (`keystore/soundtrail-debug.p12`) existed: a CI runner is discarded after every job and Android's default debug key is created per machine, so each run of the release workflow signed its APK with a brand-new, randomly generated key. Those keys are gone and cannot be reproduced, so an update over such an install is impossible — uninstall once and install cleanly:
+
+```bash
+adb uninstall tech.egrie.soundtrail
+adb install soundtrail-X.Y.Z-debug.apk
+```
+
+**The uninstall deletes the app's data.** Pins, playlists, automations, and imported audio live in private app storage with backups disabled (`allowBackup="false"`), so they disappear with the package. Stored logins go too: Spotify, SoundCloud, and Jellyfin tokens are encrypted with an Android Keystore key that the system destroys on uninstall, so reconnect your accounts afterwards. This version has no export/import, so plan on re-creating what you want to keep.
+
+It is a one-off. Every APK built from this repository — locally or by CI — is signed with `keystore/soundtrail-debug.p12`, so from the next release on, updates install over each other normally. That key is deliberately public (it is the conventional `androiddebugkey`, and anyone can read it in this repository), which is fine for sideloaded debug builds and unusable for a Play release — this repository intentionally configures no release signing.
+
 ## Releases
 
 Every pull request **merged into `main`** bumps the version by one patch and publishes a release. The `Release on merge` workflow (`.github/workflows/release.yml`):
@@ -100,7 +122,8 @@ Details worth knowing:
 - **Concurrent merges are serialized** by a `concurrency` group, so two merges cannot claim the same version number.
 - **Branch protection:** the workflow needs to be allowed to push to `main`. If a rule requires pull requests for `main`, allow the GitHub Actions bot to bypass it (Settings → Branches → the `main` rule), otherwise the job fails with a message saying exactly that. The workflow requests `permissions: contents: write` for the same reason.
 - **Manual runs:** the workflow also has `workflow_dispatch`, so *Actions → Release on merge → Run workflow* bumps and releases on demand (it always operates on `main`).
-- The attached APK is the **debug** build, which is installable but debug-signed; there is no signing configuration in this repository for a Play-ready release build.
+- The attached APK is the **debug** build, signed with the shared debug key committed at `keystore/soundtrail-debug.p12`, so each release installs as a normal update over the previous one (the first install over an APK built before that key existed still needs one uninstall — see *Updating an installed build* above). It is **not** a Play-ready build: that key is public and no release signing is configured here.
+- The `Android build` workflow checks the APK it built against the committed keystore and fails if the signing certificate does not match, so the "updates install in place" guarantee cannot regress silently.
 - CI note: because the bump is pushed with `GITHUB_TOKEN`, the separate `Android build` workflow does not re-run for that commit — the release workflow compiles the same code itself.
 
 ## Permissions, and why

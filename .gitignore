@@ -11,6 +11,9 @@ local.properties
 *.jks
 *.keystore
 *.properties.local
+# Note: keystore/soundtrail-debug.p12 is committed on purpose — every debug build,
+# local and CI, shares that one key so an APK installs as an update over the last one.
+# It holds the standard public debug credentials (androiddebugkey / android).
 
 # OS / editor
 .DS_Store
