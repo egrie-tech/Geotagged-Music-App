@@ -84,6 +84,25 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 
 7. To use YouTube Music with microG, configure microG **and sign in within your own compatible YouTube Music app**. Soundtrail can open that app and receive shared links; no YouTube Music OAuth permission or microG SDK is required here.
 
+## Releases
+
+Every pull request **merged into `main`** bumps the version by one patch and publishes a release. The `Release on merge` workflow (`.github/workflows/release.yml`):
+
+1. adds 1 to `versionCode` and `0.0.1` to `versionName` in `app/build.gradle.kts` (via `.github/scripts/bump_version.py`, which also skips any patch whose `vX.Y.Z` tag already exists),
+2. builds `:app:assembleDebug` **before** pushing anything, so a broken build leaves `main` untouched,
+3. commits `Bump version to X.Y.Z [skip ci]` to `main`, tags `vX.Y.Z`, and pushes both,
+4. creates the GitHub Release `Soundtrail X.Y.Z` with generated notes (the merged pull requests) and the debug APK attached as `soundtrail-X.Y.Z-debug.apk`.
+
+Details worth knowing:
+
+- **It cannot loop.** The bump is pushed with the workflow's own token, and pushes made with `GITHUB_TOKEN` do not start further workflow runs.
+- **Closing a pull request without merging does nothing**; the job is skipped unless `pull_request.merged` is true. A pull request merged into a branch other than `main` is ignored too.
+- **Concurrent merges are serialized** by a `concurrency` group, so two merges cannot claim the same version number.
+- **Branch protection:** the workflow needs to be allowed to push to `main`. If a rule requires pull requests for `main`, allow the GitHub Actions bot to bypass it (Settings → Branches → the `main` rule), otherwise the job fails with a message saying exactly that. The workflow requests `permissions: contents: write` for the same reason.
+- **Manual runs:** the workflow also has `workflow_dispatch`, so *Actions → Release on merge → Run workflow* bumps and releases on demand (it always operates on `main`).
+- The attached APK is the **debug** build, which is installable but debug-signed; there is no signing configuration in this repository for a Play-ready release build.
+- CI note: because the bump is pushed with `GITHUB_TOKEN`, the separate `Android build` workflow does not re-run for that commit — the release workflow compiles the same code itself.
+
 ## Permissions, and why
 
 | Permission | Used for |
@@ -121,6 +140,6 @@ Soundtrail deliberately contains **no downloader** — embedding one would requi
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Unit tests cover URL allowlisting/canonicalization (Spotify, YouTube Music, SoundCloud, and Jellyfin item references), TheAudioDB response parsing, Jellyfin server-address normalization, its authorization header and JSON payload shapes, library search request building/full URL encoding, library item parsing, stream URL construction (direct play plus transcode fallback), motion classification bands, automation condition evaluation (place radius, motion kind, time windows including midnight wrap) with cooldown-based triggering, YouTube search URL building, coordinate validation/distance, and the RFC 7636 PKCE challenge. The GitHub Actions Android workflow runs the same build and uploads a debug APK.
+Unit tests cover URL allowlisting/canonicalization (Spotify, YouTube Music, SoundCloud, and Jellyfin item references), TheAudioDB response parsing, Jellyfin server-address normalization, its authorization header and JSON payload shapes, library search request building/full URL encoding, library item parsing, stream URL construction (direct play plus transcode fallback), motion classification bands, automation condition evaluation (place radius, motion kind, time windows including midnight wrap) with cooldown-based triggering, YouTube search URL building, coordinate validation/distance, and the RFC 7636 PKCE challenge. The GitHub Actions Android workflow runs the same build and uploads a debug APK, and the `Release on merge` workflow builds, tags, and releases each merged pull request.
 
 Documentation: [Jellyfin API](https://api.jellyfin.org/) · [Jellyfin authentication](https://jellyfin.org/docs/general/administration/configuration/#security) · [Spotify PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow) · [SoundCloud API guide](https://developers.soundcloud.com/docs/api/guide) · [SoundCloud app registration](https://developers.soundcloud.com/docs/api/register-app) · [TheAudioDB free music API](https://www.theaudiodb.com/free_music_api) · [Foreground service types](https://developer.android.com/about/versions/14/changes/fgs-types-required) · [microG](https://microg.org/)
