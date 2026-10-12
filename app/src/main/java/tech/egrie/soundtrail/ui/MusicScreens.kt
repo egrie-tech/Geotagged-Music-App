@@ -119,9 +119,10 @@ internal fun MusicSearchScreen(
                     }
                     Spacer(Modifier.width(10.dp))
                     Text("Search ${provider.label}", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.weight(1f))
-                    ProviderSwitch(provider, onSelectProvider)
                 }
+                // Three providers no longer share a line with the title on narrow screens.
+                Spacer(Modifier.height(10.dp))
+                ProviderSwitch(provider, onSelectProvider)
                 Spacer(Modifier.height(8.dp))
                 if (connected) {
                     Text("Browse tracks with your connected account.",
