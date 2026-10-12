@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
@@ -83,9 +84,16 @@ internal fun MusicSearchScreen(
     }
 
     val provider = state.searchProvider
-    val soundcloudSelected = provider == SearchProvider.SOUNDCLOUD
-    val connected = if (soundcloudSelected) state.soundcloudConnected else state.spotifyConnected
-    val accent = if (soundcloudSelected) Palette.soundcloud else Palette.spotify
+    val connected = when (provider) {
+        SearchProvider.SPOTIFY -> state.spotifyConnected
+        SearchProvider.SOUNDCLOUD -> state.soundcloudConnected
+        SearchProvider.JELLYFIN -> state.jellyfinConnected
+    }
+    val accent = when (provider) {
+        SearchProvider.SPOTIFY -> Palette.spotify
+        SearchProvider.SOUNDCLOUD -> Palette.soundcloud
+        SearchProvider.JELLYFIN -> Palette.jellyfin
+    }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 20.dp),
@@ -99,7 +107,8 @@ internal fun MusicSearchScreen(
             Spacer(Modifier.height(8.dp))
             Text("Find a feeling.\nGive it a place.", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(8.dp))
-            Text("Find a track on Spotify or SoundCloud, look up a song free, or bring a YouTube Music link.",
+            Text("Find a track on Spotify, SoundCloud, or your own Jellyfin server, look up a " +
+                "song free, or bring a YouTube Music link.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(20.dp))
             SurfaceCard(Modifier.fillMaxWidth()) {
@@ -130,11 +139,16 @@ internal fun MusicSearchScreen(
                         enabled = !state.searching && query.isNotBlank())
                 } else {
                     Text(
-                        if (soundcloudSelected) {
-                            "Connect a SoundCloud API app's Client ID and Secret on the Connect tab. " +
-                                "You can still pin a song link without signing in."
-                        } else {
-                            "Connect Spotify to search its track catalog. You can still pin a song link without signing in."
+                        when (provider) {
+                            SearchProvider.SOUNDCLOUD ->
+                                "Connect a SoundCloud API app's Client ID and Secret on the Connect tab. " +
+                                    "You can still pin a song link without signing in."
+                            SearchProvider.JELLYFIN ->
+                                "Connect your own Jellyfin server on the Connect tab to search the " +
+                                    "music you already host there."
+                            SearchProvider.SPOTIFY ->
+                                "Connect Spotify to search its track catalog. You can still pin a " +
+                                    "song link without signing in."
                         },
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
                     )
@@ -329,11 +343,16 @@ internal fun ConnectionsScreen(
     onConnect: (String) -> Unit, onDisconnect: () -> Unit,
     onConnectSoundcloud: (String, String) -> Unit, onDisconnectSoundcloud: () -> Unit,
     onOpenSpotify: () -> Unit, onOpenYoutube: () -> Unit, onOpenSoundcloud: () -> Unit,
-    onOpenDashboard: () -> Unit, onOpenMicroG: () -> Unit, onOpenSoundcloudApps: () -> Unit
+    onOpenDashboard: () -> Unit, onOpenMicroG: () -> Unit, onOpenSoundcloudApps: () -> Unit,
+    onConnectJellyfin: (String, String, String) -> Unit, onDisconnectJellyfin: () -> Unit,
+    onOpenJellyfin: () -> Unit
 ) {
     var clientId by rememberSaveable(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
     var soundcloudId by rememberSaveable(state.soundcloudClientId) { mutableStateOf(state.soundcloudClientId) }
     var soundcloudSecret by rememberSaveable { mutableStateOf("") }
+    var jellyfinServer by rememberSaveable(state.jellyfinServer) { mutableStateOf(state.jellyfinServer) }
+    var jellyfinUser by rememberSaveable(state.jellyfinName) { mutableStateOf(state.jellyfinName) }
+    var jellyfinPassword by rememberSaveable { mutableStateOf("") }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
     ) {
@@ -344,7 +363,8 @@ internal fun ConnectionsScreen(
         Spacer(Modifier.height(8.dp))
         Text("All your music.\nAll your places.", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(8.dp))
-        Text("Your accounts stay in their own apps. Soundtrail keeps only the links and pins you save.",
+        Text("Your accounts stay in their own apps — or on your own server. Soundtrail keeps " +
+            "only the links and pins you save.",
             color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(22.dp))
 
@@ -463,6 +483,90 @@ internal fun ConnectionsScreen(
                     Text("Open SoundCloud for Developers  ↗", color = Palette.soundcloud)
                 }
                 Text("App registration is limited; see SoundCloud's docs for current access requirements.",
+                    style = MaterialTheme.typography.labelMedium, color = Palette.muted)
+            }
+        }
+        Spacer(Modifier.height(13.dp))
+        SurfaceCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(43.dp).background(Palette.jellyfin.copy(alpha = .18f), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Dns, null, tint = Palette.jellyfin)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Jellyfin", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        when {
+                            state.jellyfinConnected -> "Connected"
+                            state.connectingJellyfin -> "Connecting…"
+                            else -> "Not connected"
+                        },
+                        color = if (state.jellyfinConnected) Palette.jellyfin else Palette.secondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                if (state.jellyfinConnected) Icon(Icons.Rounded.Check, "Connected", tint = Palette.jellyfin)
+            }
+            Spacer(Modifier.height(15.dp))
+            if (state.jellyfinConnected) {
+                Text(
+                    state.jellyfinServerName.ifBlank { "Your server" } +
+                        if (state.jellyfinName.isBlank()) "" else " · signed in as ${state.jellyfinName}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(state.jellyfinServer, color = Palette.secondary,
+                    style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Text("Pins, playlists, and automations can use songs from this server. Soundtrail " +
+                    "streams them in the app and copies nothing.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(13.dp))
+                PrimaryButton("Open Jellyfin  ↗", onOpenJellyfin, Modifier.fillMaxWidth())
+                TextButton(onClick = onDisconnectJellyfin) {
+                    Text("Disconnect on this device", color = Palette.coral)
+                }
+            } else {
+                Text("Point Soundtrail at the Jellyfin server you run yourself, to search that " +
+                    "library and stream it here. Access is read-only; nothing is uploaded.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(13.dp))
+                OutlinedTextField(
+                    value = jellyfinServer, onValueChange = { jellyfinServer = it.trim().take(200) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Server address") },
+                    placeholder = { Text("http://192.168.1.20:8096") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = jellyfinUser, onValueChange = { jellyfinUser = it.trim().take(80) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Jellyfin username") },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = jellyfinPassword, onValueChange = { jellyfinPassword = it.take(200) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Jellyfin password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password, imeAction = ImeAction.Done
+                    )
+                )
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton(
+                    if (state.connectingJellyfin) "Connecting…" else "Connect Jellyfin",
+                    { onConnectJellyfin(jellyfinServer, jellyfinUser, jellyfinPassword) },
+                    Modifier.fillMaxWidth(),
+                    enabled = !state.connectingJellyfin && jellyfinServer.isNotBlank() &&
+                        jellyfinUser.isNotBlank() && jellyfinPassword.isNotEmpty()
+                )
+                Text("The password goes only to that server and is never stored; Jellyfin returns " +
+                    "an access token instead, kept encrypted with Android Keystore. Servers on " +
+                    "your own network usually speak plain http://.",
                     style = MaterialTheme.typography.labelMedium, color = Palette.muted)
             }
         }

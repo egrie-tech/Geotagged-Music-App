@@ -23,6 +23,9 @@ import tech.egrie.soundtrail.data.PlaylistItem
 import tech.egrie.soundtrail.data.PlaylistStore
 import tech.egrie.soundtrail.integrations.AudioDbService
 import tech.egrie.soundtrail.integrations.DeviceApps
+import tech.egrie.soundtrail.integrations.JellyfinRef
+import tech.egrie.soundtrail.integrations.JellyfinService
+import tech.egrie.soundtrail.integrations.MusicLink
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
@@ -30,10 +33,13 @@ import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
+import tech.egrie.soundtrail.playback.JellyfinPlayer
 import java.util.UUID
 
 /** Which connected catalog the Search tab queries. */
-internal enum class SearchProvider(val label: String) { SPOTIFY("Spotify"), SOUNDCLOUD("SoundCloud") }
+internal enum class SearchProvider(val label: String) {
+    SPOTIFY("Spotify"), SOUNDCLOUD("SoundCloud"), JELLYFIN("Jellyfin")
+}
 
 internal data class AppState(
     val pins: List<MusicPin> = emptyList(),
@@ -45,8 +51,13 @@ internal data class AppState(
     val soundcloudConnected: Boolean = false,
     val soundcloudClientId: String = "",
     val soundcloudName: String? = null,
+    val jellyfinConnected: Boolean = false,
+    val jellyfinServer: String = "",
+    val jellyfinName: String = "",
+    val jellyfinServerName: String = "",
     val connecting: Boolean = false,
     val connectingSoundcloud: Boolean = false,
+    val connectingJellyfin: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.SPOTIFY,
     val searching: Boolean = false,
     val results: List<TrackResult> = emptyList(),
@@ -80,9 +91,13 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val files = FileStore(application)
     private val spotify = SpotifyService(application)
     private val soundcloud = SoundCloudService(application)
+    private val jellyfin = JellyfinService(application)
     private val audioDb = AudioDbService()
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
+
+    /** Streams the user's own Jellyfin server inside the app; the UI watches its state. */
+    val player = JellyfinPlayer(application)
 
     private val _state = MutableStateFlow(
         AppState(
@@ -92,7 +107,11 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             spotifyConnected = spotify.connected,
             spotifyClientId = spotify.clientId,
             soundcloudConnected = soundcloud.connected,
-            soundcloudClientId = soundcloud.clientId
+            soundcloudClientId = soundcloud.clientId,
+            jellyfinConnected = jellyfin.connected,
+            jellyfinServer = jellyfin.serverUrl,
+            jellyfinName = jellyfin.userName,
+            jellyfinServerName = jellyfin.serverName
         )
     )
     val state = _state.asStateFlow()
@@ -119,7 +138,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 youtubeAppInstalled = apps.youtubeMusicPackage != null,
                 servicesLabel = apps.servicesLabel,
                 spotifyConnected = spotify.connected,
-                soundcloudConnected = soundcloud.connected
+                soundcloudConnected = soundcloud.connected,
+                jellyfinConnected = jellyfin.connected
             )
         }
     }
@@ -229,6 +249,100 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    // ----- Jellyfin: the user's own server -----
+
+    /**
+     * Signs in to the user's Jellyfin server. The address, the username, and the password go
+     * only to that server; the password is not stored, and the returned token is encrypted
+     * with Android Keystore like the other providers' tokens.
+     */
+    fun connectJellyfin(server: String, user: String, password: String) {
+        if (_state.value.connectingJellyfin) return
+        _state.update { it.copy(connectingJellyfin = true) }
+        viewModelScope.launch {
+            try {
+                val name = jellyfin.connect(server, user, password)
+                _state.update {
+                    it.copy(
+                        jellyfinConnected = true,
+                        jellyfinServer = jellyfin.serverUrl,
+                        jellyfinName = jellyfin.userName.ifBlank { name },
+                        jellyfinServerName = jellyfin.serverName
+                    )
+                }
+                notify("Connected to ${jellyfin.serverName.ifBlank { "your Jellyfin server" }} as $name.")
+            } catch (e: Exception) {
+                notify(e.message ?: "Could not reach your Jellyfin server.")
+            } finally {
+                _state.update {
+                    it.copy(
+                        connectingJellyfin = false,
+                        jellyfinConnected = jellyfin.connected,
+                        jellyfinServer = jellyfin.serverUrl,
+                        jellyfinName = jellyfin.userName,
+                        jellyfinServerName = jellyfin.serverName
+                    )
+                }
+            }
+        }
+    }
+
+    fun disconnectJellyfin() {
+        // Clear locally first; the sign-out call is best-effort and cannot race a reconnect.
+        val previous = jellyfin.disconnect()
+        val server = _state.value.jellyfinServer
+        player.stop()
+        _state.update {
+            it.copy(
+                jellyfinConnected = false,
+                jellyfinName = "",
+                results = if (it.searchProvider == SearchProvider.JELLYFIN) emptyList() else it.results,
+                searchError = null
+            )
+        }
+        notify("Jellyfin disconnected on this device.")
+        if (previous != null && server.isNotBlank()) {
+            viewModelScope.launch { jellyfin.revokeAccessToken(server, previous) }
+        }
+    }
+
+    /**
+     * Plays a pinned or playlist Jellyfin song in the app itself. The stored link is only an
+     * item reference, so the stream URL is resolved here from the current connection.
+     */
+    fun playJellyfin(link: MusicLink, title: String, artist: String) {
+        val itemId = JellyfinRef.itemId(link.url)
+        if (itemId == null) {
+            notify("That Jellyfin song link is not usable.")
+            return
+        }
+        val playback = jellyfin.playback(itemId)
+        if (playback == null) {
+            notify("Connect your Jellyfin server on the Connect tab to stream this song.")
+            return
+        }
+        player.play(
+            title = title.ifBlank { "Jellyfin song" },
+            artist = artist,
+            itemId = itemId,
+            playback = playback
+        )
+    }
+
+    fun togglePlayback() = player.toggle()
+
+    fun stopPlayback() = player.stop()
+
+    /** A link to the item in Jellyfin's own web client, for sharing with people on that server. */
+    fun jellyfinWebUrl(link: MusicLink): String? {
+        val itemId = JellyfinRef.itemId(link.url) ?: return null
+        if (!jellyfin.connected) return null
+        return JellyfinRef.webUrl(jellyfin.serverUrl, itemId)
+    }
+
+    /** The server's own web interface, for opening in a browser. */
+    fun jellyfinServerUrl(): String = jellyfin.serverUrl
+
     fun selectSearchProvider(provider: SearchProvider) {
         if (_state.value.searchProvider == provider) return
         _state.update { it.copy(searchProvider = provider, results = emptyList(), searchError = null) }
@@ -247,6 +361,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 val tracks = when (provider) {
                     SearchProvider.SPOTIFY -> spotify.searchTracks(query)
                     SearchProvider.SOUNDCLOUD -> soundcloud.searchTracks(query)
+                    SearchProvider.JELLYFIN -> jellyfin.searchTracks(query)
                 }
                 _state.update { it.copy(results = tracks) }
             } catch (e: Exception) {
@@ -256,7 +371,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                     it.copy(
                         searching = false,
                         spotifyConnected = spotify.connected,
-                        soundcloudConnected = soundcloud.connected
+                        soundcloudConnected = soundcloud.connected,
+                        jellyfinConnected = jellyfin.connected
                     )
                 }
             }

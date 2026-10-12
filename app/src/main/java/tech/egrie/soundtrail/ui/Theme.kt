@@ -25,6 +25,9 @@ internal object Palette {
     val spotify = Color(0xFF1ED760)
     val youtube = Color(0xFFFF645E)
     val soundcloud = Color(0xFFFF7A45)
+
+    /** Jellyfin's own purple, for the server the user runs themselves. */
+    val jellyfin = Color(0xFFAA5CC3)
 }
 
 private val colors = darkColorScheme(

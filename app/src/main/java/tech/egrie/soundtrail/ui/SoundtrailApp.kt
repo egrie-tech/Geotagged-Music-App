@@ -66,6 +66,7 @@ import tech.egrie.soundtrail.SearchProvider
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
 import tech.egrie.soundtrail.integrations.TrackResult
+import tech.egrie.soundtrail.playback.NowPlaying
 import java.io.Serializable
 import java.util.Locale
 
@@ -89,6 +90,7 @@ internal fun SoundtrailApp(
     incomingDraft: PinDraft?,
     onIncomingConsumed: () -> Unit,
     openListsSignal: Int,
+    nowPlaying: NowPlaying?,
     lists: ListsActions,
     onLocate: () -> Unit,
     onSearch: (String) -> Unit,
@@ -98,6 +100,11 @@ internal fun SoundtrailApp(
     onDisconnect: () -> Unit,
     onConnectSoundcloud: (String, String) -> Unit,
     onDisconnectSoundcloud: () -> Unit,
+    onConnectJellyfin: (String, String, String) -> Unit,
+    onDisconnectJellyfin: () -> Unit,
+    onOpenJellyfin: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onStopPlayback: () -> Unit,
     onPlay: (MusicPin) -> Unit,
     onMap: (GeoPoint) -> Unit,
     onDelete: (String) -> Unit,
@@ -150,7 +157,15 @@ internal fun SoundtrailApp(
                 Snackbar(data, containerColor = Palette.elevated, contentColor = Palette.text)
             }
         },
-        bottomBar = { if (draft == null) BottomTabs(tab) { tab = it } }
+        bottomBar = {
+            Column {
+                // Streaming from the user's own Jellyfin server keeps its controls in the app.
+                nowPlaying?.let { current ->
+                    NowPlayingBar(current, onToggle = onTogglePlayback, onStop = onStopPlayback)
+                }
+                if (draft == null) BottomTabs(tab) { tab = it }
+            }
+        }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             val editor = draft
@@ -190,7 +205,8 @@ internal fun SoundtrailApp(
                 Tab.CONNECT -> ConnectionsScreen(
                     state, onConnect, onDisconnect, onConnectSoundcloud, onDisconnectSoundcloud,
                     onOpenSpotify, onOpenYoutube, onOpenSoundcloud,
-                    onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps
+                    onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps,
+                    onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin
                 )
             }
         }
@@ -281,9 +297,10 @@ private fun HomeScreen(
         SurfaceCard(Modifier.fillMaxWidth()) {
             Eyebrow("YOUR MUSIC, YOUR WAY", Palette.lilac)
             Spacer(Modifier.height(9.dp))
-            Text("Three worlds. One map.", style = MaterialTheme.typography.titleLarge)
+            Text("Four worlds. One map.", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(6.dp))
-            Text("Search with Spotify or SoundCloud, pin a YouTube Music link, or let a playlist greet you at a place.",
+            Text("Search with Spotify, SoundCloud, or your own Jellyfin server, pin a YouTube " +
+                "Music link, or let a playlist greet you at a place.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(6.dp))
             TextButton(onClick = onConnections) { Text("Manage connections  →", color = Palette.primary) }

@@ -34,10 +34,13 @@ class DeviceApps(private val context: Context) {
 
     fun play(link: MusicLink): Boolean {
         val verified = MusicLinkParser.parse(link.url) ?: return false
+        // A Jellyfin song is streamed by Soundtrail from the user's own server, never handed off.
+        if (verified.provider == MusicProvider.JELLYFIN) return false
         val preferredPackage = when (verified.provider) {
             MusicProvider.SPOTIFY -> "com.spotify.music".takeIf(::installed)
             MusicProvider.YOUTUBE_MUSIC -> youtubeMusicPackage
             MusicProvider.SOUNDCLOUD -> "com.soundcloud.android".takeIf(::installed)
+            MusicProvider.JELLYFIN -> null
         }
         if (preferredPackage != null && view(verified.url, preferredPackage)) return true
         return view(verified.url)

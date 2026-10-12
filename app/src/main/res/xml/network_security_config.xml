@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Soundtrail talks to a self-hosted Jellyfin server at an address the user types in themselves.
+  Home servers are usually plain HTTP on the local network, so cleartext has to be allowed for
+  that one address — and the platform security config cannot know it in advance.
+  Everything else stays as strict as before: HTTPS providers keep their certificates validated
+  against the system trust store, and user-installed CAs are never trusted.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
