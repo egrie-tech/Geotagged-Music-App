@@ -122,6 +122,7 @@ internal fun SoundtrailApp(
     onDisconnectJellyfin: () -> Unit,
     onOpenJellyfin: () -> Unit,
     onConnectYouTubeData: () -> Unit,
+    onConnectYouTubeOAuth: (String) -> Unit,
     onDisconnectYouTubeData: () -> Unit,
     onOpenYouTubeSetup: () -> Unit,
     backupBusy: Boolean,
@@ -149,6 +150,7 @@ internal fun SoundtrailApp(
     onOpenSoundcloud: () -> Unit,
     onOpenDashboard: () -> Unit,
     onOpenMicroG: () -> Unit,
+    onOpenMicroGRe: () -> Unit,
     onOpenSoundcloudApps: () -> Unit,
     onSavePin: (PinInput) -> Boolean,
     onNotice: (String) -> Unit
@@ -244,9 +246,9 @@ internal fun SoundtrailApp(
                 Tab.CONNECT -> ConnectionsScreen(
                     state, onConnect, onDisconnect, onConnectSoundcloud, onDisconnectSoundcloud,
                     onOpenSpotify, onOpenYoutube, onOpenSoundcloud,
-                    onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps,
+                    onOpenDashboard, onOpenMicroG, onOpenMicroGRe, onOpenSoundcloudApps,
                     onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin,
-                    onConnectYouTubeData, onDisconnectYouTubeData, onOpenYouTubeSetup,
+                    onConnectYouTubeData, onConnectYouTubeOAuth, onDisconnectYouTubeData, onOpenYouTubeSetup,
                     backupBusy, onExportBackup, onImportBackup,
                     state.syncBusy, onCreateCloudSyncAccount, onSignInCloudSync,
                     onUnlockCloudSync, onSyncCloudData, onShowCloudRecoveryKey,

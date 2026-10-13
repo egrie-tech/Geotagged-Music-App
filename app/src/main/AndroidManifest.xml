@@ -56,6 +56,22 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="app.soundtrail" android:host="soundcloud-auth" />
             </intent-filter>
+            <!-- Browser-based YouTube OAuth (Desktop client): works with MicroG RE or no Google
+                 services. Google's documented custom-scheme form is scheme:/path; the equivalent
+                 scheme://host form is accepted too. Each form needs its own filter because a
+                 filter that declares a host never matches a host-less URI. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.soundtrail" android:path="/youtube-auth" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.soundtrail" android:host="youtube-auth" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
