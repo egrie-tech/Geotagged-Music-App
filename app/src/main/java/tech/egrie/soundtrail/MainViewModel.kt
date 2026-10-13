@@ -1,5 +1,6 @@
 package tech.egrie.soundtrail
 
+import android.accounts.Account
 import android.app.Application
 import android.net.Uri
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -37,6 +38,7 @@ import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
+import tech.egrie.soundtrail.integrations.YouTubeConsentRequiredException
 import tech.egrie.soundtrail.integrations.YouTubeDataService
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
@@ -416,14 +418,46 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     /** The server's own web interface, for opening in a browser. */
     fun jellyfinServerUrl(): String = jellyfin.serverUrl
 
+    /** Connects a Google account that the user finished signing in to in the Google sign-in screen. */
     fun connectYouTubeData(account: GoogleSignInAccount) {
+        val googleAccount = account.account
+        if (googleAccount == null) {
+            notify("Google Sign-In did not return an account. Try again.")
+            return
+        }
+        runYouTubeConnect(onConsentNeeded = null) {
+            youtubeData.connect(googleAccount, account.email ?: account.displayName)
+        }
+    }
+
+    /**
+     * Connects the microG (or device) Google account without a picker. If Google still needs the
+     * read-only consent, [onConsentNeeded] runs so the caller can open the interactive sign-in.
+     */
+    fun connectMicroGAccount(account: Account, onConsentNeeded: () -> Unit) {
+        runYouTubeConnect(onConsentNeeded) {
+            youtubeData.connect(account, null)
+        }
+    }
+
+    private fun runYouTubeConnect(
+        onConsentNeeded: (() -> Unit)?,
+        connect: suspend () -> String
+    ) {
         if (_state.value.connectingYouTubeData) return
         _state.update { it.copy(connectingYouTubeData = true, youtubeDataConnected = false) }
         viewModelScope.launch {
             try {
-                val accountName = youtubeData.connect(account)
+                val accountName = connect()
                 _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = accountName) }
                 notify("YouTube read-only access connected. Search your playlists to find videos.")
+            } catch (e: YouTubeConsentRequiredException) {
+                _state.update { it.copy(youtubeDataConnected = false, youtubeDataAccount = null) }
+                if (onConsentNeeded != null) {
+                    onConsentNeeded()
+                } else {
+                    notify(e.message ?: "Approve the YouTube read-only permission, then connect again.")
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(youtubeDataConnected = false, youtubeDataAccount = null) }
                 notify(e.message ?: "Could not connect your YouTube account.")

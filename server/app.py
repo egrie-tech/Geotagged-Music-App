@@ -27,6 +27,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 API_VERSION = "v1"
+# Platform-neutral default: a "data" folder next to this file (works on Linux, macOS, Windows, BSD).
+# Override with SOUNDTRAIL_DB to keep the database on a dedicated disk or volume.
+DEFAULT_DB_PATH = Path(__file__).resolve().parent / "data" / "soundtrail.sqlite3"
 MAX_BODY_BYTES = 16 * 1024 * 1024
 MAX_EVENT_BYTES = 1024 * 1024
 MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
@@ -748,8 +751,8 @@ def make_handler(db_path: str):
 
 
 def serve() -> None:
-    db_path = os.environ.get("SOUNDTRAIL_DB", "/data/soundtrail.sqlite3")
-    host = os.environ.get("SOUNDTRAIL_HOST", "0.0.0.0")
+    db_path = os.environ.get("SOUNDTRAIL_DB") or str(DEFAULT_DB_PATH)
+    host = os.environ.get("SOUNDTRAIL_HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8080"))
     initialize_db(db_path)
     httpd = ThreadingHTTPServer((host, port), make_handler(db_path))

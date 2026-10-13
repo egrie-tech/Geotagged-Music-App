@@ -49,6 +49,13 @@ class MainActivity : ComponentActivity() {
     private var incomingDraft by mutableStateOf<PinDraft?>(null)
     private var listsOpenSignal by mutableStateOf(0)
 
+    private val accountsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Without account access Soundtrail cannot see microG's account, so use the sign-in screen.
+        if (granted) continueYouTubeConnect() else launchGoogleSignIn()
+    }
+
     private val youtubeSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -356,15 +363,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Connect Google using the microG account. With exactly one Google-type account on the device
+     * it is used directly, with no picker. With none, or several, the Google Sign-In screen
+     * (served by microG or Google Play services) lets the user choose or add an account.
+     */
     private fun connectYouTubeData() {
         if (model.state.value.connectingYouTubeData) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.GET_ACCOUNTS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            accountsPermissionLauncher.launch(Manifest.permission.GET_ACCOUNTS)
+            return
+        }
+        continueYouTubeConnect()
+    }
+
+    private fun continueYouTubeConnect() {
+        val accounts = YouTubeDataService.deviceGoogleAccounts(this)
+        if (accounts.size == 1) {
+            model.connectMicroGAccount(accounts.single()) { launchGoogleSignIn() }
+        } else {
+            launchGoogleSignIn()
+        }
+    }
+
+    private fun launchGoogleSignIn() {
         try {
             val client = GoogleSignIn.getClient(this, YouTubeDataService.signInOptions())
             youtubeSignInLauncher.launch(client.signInIntent)
         } catch (e: Exception) {
             model.notify(
-                "Could not start Google sign-in. Install or configure Google Play services or " +
-                    "a compatible microG build."
+                "Could not start Google sign-in. Install or configure microG or Google Play services."
             )
         }
     }
