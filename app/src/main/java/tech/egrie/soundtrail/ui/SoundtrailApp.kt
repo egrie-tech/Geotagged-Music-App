@@ -251,6 +251,7 @@ internal fun SoundtrailApp(
                     onOpenDashboard, onOpenMicroG, onOpenMicroGRe, onOpenSoundcloudApps,
                     onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin,
                     onConnectYouTubeData, onConnectYouTubeOAuth, onDisconnectYouTubeData, onOpenYouTubeSetup,
+                    onImportYouTubePlaylists, onSetYouTubeAutoImport,
                     backupBusy, onExportBackup, onImportBackup,
                     state.syncBusy, onCreateCloudSyncAccount, onSignInCloudSync,
                     onUnlockCloudSync, onSyncCloudData, onShowCloudRecoveryKey,

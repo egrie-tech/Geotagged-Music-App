@@ -233,6 +233,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 jellyfinConnected = jellyfin.connected,
                 youtubeDataConnected = youtubeData.connected,
                 youtubeDataAccount = youtubeData.accountName,
+                youtubeOAuthClientId = youtubeData.oauthClientId,
                 youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
                 youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L),
                 syncServer = cloudSync.serverUrl,
@@ -526,13 +527,23 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             try {
                 val label = youtubeData.finishOAuthSignIn(uri)
-                _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = label) }
-                notify("YouTube read-only access connected. Search your playlists to find videos.")
+                _state.update {
+                    it.copy(
+                        youtubeDataConnected = true,
+                        youtubeDataAccount = label,
+                        youtubeOAuthClientId = youtubeData.oauthClientId,
+                        youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
+                        youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L)
+                    )
+                }
+                notify("YouTube read-only access connected. Playlists will import automatically if that option is on.")
+                maybeAutoImportYouTube()
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
                         youtubeDataConnected = youtubeData.connected,
-                        youtubeDataAccount = youtubeData.accountName
+                        youtubeDataAccount = youtubeData.accountName,
+                        youtubeOAuthClientId = youtubeData.oauthClientId
                     )
                 }
                 notify(e.message ?: "Could not connect your YouTube account.")
