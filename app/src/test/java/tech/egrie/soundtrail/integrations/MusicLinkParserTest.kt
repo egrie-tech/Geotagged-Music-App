@@ -61,6 +61,7 @@ class MusicLinkParserTest {
 
     @Test fun `rejects playlists forged hosts and non-https URLs`() {
         assertNull(MusicLinkParser.parse("https://music.youtube.com/playlist?list=PL123"))
+        assertNull(MusicLinkParser.parse("https://music.youtube.com/search?q=artist+song"))
         assertNull(MusicLinkParser.parse("https://open.spotify.com.evil.example/track/$spotifyId"))
         assertNull(MusicLinkParser.parse("https://music.youtube.com.evil.example/watch?v=dQw4w9WgXcQ"))
         assertNull(MusicLinkParser.parse("http://music.youtube.com/watch?v=dQw4w9WgXcQ"))

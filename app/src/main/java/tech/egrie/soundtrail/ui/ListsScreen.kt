@@ -234,13 +234,13 @@ private fun WatchCard(state: AppState, actions: ListsActions) {
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Auto-search YouTube when adding songs", style = MaterialTheme.typography.titleMedium)
-                Text("Opens YouTube search results in your browser or the YouTube app.",
+                Text("Auto-search YouTube Music when adding songs", style = MaterialTheme.typography.titleMedium)
+                Text("Opens results in your YouTube Music app when available, or a browser.",
                     color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             }
             Switch(checked = state.autoSearchYoutube, onCheckedChange = actions.onToggleAutoSearch)
         }
-        Text("Soundtrail never downloads YouTube content — playback and saving stay in YouTube's own apps.",
+        Text("Soundtrail does not download or stream YouTube Music; playback stays in your music app.",
             color = Palette.muted, style = MaterialTheme.typography.labelMedium)
     }
 }
@@ -261,7 +261,7 @@ private fun PlaylistDetailCard(
             }
         }
         if (playlist.items.isEmpty()) {
-            Text("Empty. Add a song below — a link is optional; without one, Soundtrail searches YouTube for it.",
+            Text("Empty. Add a song below — a link is optional; without one, Soundtrail searches YouTube Music for it.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(10.dp))
         }
@@ -310,12 +310,12 @@ private fun PlaylistDetailCard(
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(),
-            singleLine = true, label = { Text("Spotify, SoundCloud, or YouTube link (optional)") },
+            singleLine = true, label = { Text("Spotify, SoundCloud, or YouTube Music link (optional)") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done)
         )
         if (url.isNotBlank() && MusicLinkParser.parse(url) == null) {
             Spacer(Modifier.height(6.dp))
-            Text("That link is not a supported song URL; it will be ignored and YouTube search will be used.",
+            Text("That link is not a supported song URL; it will be ignored and a YouTube Music search will be used.",
                 color = Palette.coral, style = MaterialTheme.typography.labelMedium)
         }
         Spacer(Modifier.height(10.dp))

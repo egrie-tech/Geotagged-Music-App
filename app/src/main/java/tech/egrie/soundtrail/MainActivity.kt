@@ -1,6 +1,7 @@
 package tech.egrie.soundtrail
 
 import android.Manifest
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
+import com.google.android.gms.common.api.ApiException
 import tech.egrie.soundtrail.automation.LocationWatchService
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
@@ -27,6 +31,7 @@ import tech.egrie.soundtrail.integrations.DeviceApps
 import tech.egrie.soundtrail.integrations.MusicLink
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 import tech.egrie.soundtrail.integrations.MusicProvider
+import tech.egrie.soundtrail.integrations.YouTubeDataService
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
 import tech.egrie.soundtrail.ui.ListsActions
@@ -40,6 +45,30 @@ class MainActivity : ComponentActivity() {
     private lateinit var apps: DeviceApps
     private var incomingDraft by mutableStateOf<PinDraft?>(null)
     private var listsOpenSignal by mutableStateOf(0)
+
+    private val youtubeSignInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (data == null) {
+            if (result.resultCode == Activity.RESULT_OK) model.notify("Google services returned no sign-in result.")
+            return@registerForActivityResult
+        }
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            model.connectYouTubeData(account)
+        } catch (e: ApiException) {
+            if (e.statusCode != GoogleSignInStatusCodes.SIGN_IN_CANCELLED) {
+                model.notify(
+                    "Google sign-in failed (${e.statusCode}). Check the Android OAuth setup and " +
+                        "that Google Play services or compatible microG is available."
+                )
+            }
+        } catch (e: Exception) {
+            model.notify(e.message ?: "Could not finish Google sign-in.")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,13 +144,15 @@ class MainActivity : ComponentActivity() {
                         onDeletePlaylist = model::deletePlaylist,
                         onAddSong = { playlistId, title, artist, url ->
                             val search = model.addToPlaylist(playlistId, title, artist, url)
-                            if (search != null && !apps.openWeb(search)) model.notify("No browser found.")
+                            if (search != null && !apps.openYouTubeMusicSearch(search)) {
+                                model.notify("No YouTube Music app or browser found.")
+                            }
                         },
                         onRemoveSong = model::removePlaylistItem,
                         onPlaySong = ::playPlaylistItem,
                         onSearchSong = { item ->
-                            if (!apps.openWeb(YouTubeSearch.searchUrl(item.title, item.artist))) {
-                                model.notify("No browser found.")
+                            if (!apps.searchYouTubeMusic(item.title, item.artist)) {
+                                model.notify("No YouTube Music app or browser found.")
                             }
                         },
                         onGetSong = { item ->
@@ -158,6 +189,13 @@ class MainActivity : ComponentActivity() {
                     onConnectJellyfin = model::connectJellyfin,
                     onDisconnectJellyfin = model::disconnectJellyfin,
                     onOpenJellyfin = { if (!apps.openWeb(model.jellyfinServerUrl())) model.notify("No browser found.") },
+                    onConnectYouTubeData = ::connectYouTubeData,
+                    onDisconnectYouTubeData = model::disconnectYouTubeData,
+                    onOpenYouTubeSetup = {
+                        if (!apps.openWeb("https://console.cloud.google.com/apis/credentials")) {
+                            model.notify("No browser found.")
+                        }
+                    },
                     onTogglePlayback = model::togglePlayback,
                     onStopPlayback = model::stopPlayback,
                     onPlay = ::play,
@@ -165,6 +203,16 @@ class MainActivity : ComponentActivity() {
                     onDelete = model::deletePin,
                     onOpenSpotify = { if (!apps.openSpotify()) model.notify("No app can open Spotify.") },
                     onOpenYoutube = { if (!apps.openYouTubeMusic()) model.notify("No app can open YouTube Music.") },
+                    onSearchYoutubeMusic = { query ->
+                        if (!apps.searchYouTubeMusic(query)) {
+                            model.notify("No YouTube Music app or browser found.")
+                        }
+                    },
+                    onOpenYoutubeLibrary = {
+                        if (!apps.openYouTubeMusicLibrary()) {
+                            model.notify("No YouTube Music app or browser found.")
+                        }
+                    },
                     onOpenSoundcloud = { if (!apps.openSoundCloud()) model.notify("No app can open SoundCloud.") },
                     onOpenDashboard = {
                         if (!apps.openWeb("https://developer.spotify.com/dashboard")) model.notify("No browser found.")
@@ -268,6 +316,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun connectYouTubeData() {
+        if (model.state.value.connectingYouTubeData) return
+        try {
+            val client = GoogleSignIn.getClient(this, YouTubeDataService.signInOptions())
+            youtubeSignInLauncher.launch(client.signInIntent)
+        } catch (e: Exception) {
+            model.notify(
+                "Could not start Google sign-in. Install or configure Google Play services or " +
+                    "a compatible microG build."
+            )
+        }
+    }
+
     /** Jellyfin songs stream inside Soundtrail; everything else is handed to the user's apps. */
     private fun play(pin: MusicPin) {
         val link = MusicLink(pin.provider, pin.url)
@@ -280,7 +341,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Plays locally imported audio first; then the linked song; else a YouTube search. */
+    /** Plays locally imported audio first; then the linked song; else a YouTube Music search. */
     private fun playPlaylistItem(item: PlaylistItem) {
         if (item.localFile != null && apps.playLocalFile(item.localFile)) return
         val url = item.url
@@ -292,8 +353,8 @@ class MainActivity : ComponentActivity() {
             }
             if ((link != null && apps.play(link)) || apps.openWeb(url)) return
         }
-        if (!apps.openWeb(YouTubeSearch.searchUrl(item.title, item.artist))) {
-            model.notify("No app can play this song yet.")
+        if (!apps.searchYouTubeMusic(item.title, item.artist)) {
+            model.notify("No YouTube Music app or browser found.")
         }
     }
 

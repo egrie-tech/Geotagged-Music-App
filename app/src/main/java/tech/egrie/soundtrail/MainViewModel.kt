@@ -2,6 +2,7 @@ package tech.egrie.soundtrail
 
 import android.app.Application
 import android.net.Uri
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,7 @@ import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
+import tech.egrie.soundtrail.integrations.YouTubeDataService
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
 import tech.egrie.soundtrail.playback.JellyfinPlayer
@@ -38,7 +40,7 @@ import java.util.UUID
 
 /** Which connected catalog the Search tab queries. */
 internal enum class SearchProvider(val label: String) {
-    SPOTIFY("Spotify"), SOUNDCLOUD("SoundCloud"), JELLYFIN("Jellyfin")
+    SPOTIFY("Spotify"), SOUNDCLOUD("SoundCloud"), JELLYFIN("Jellyfin"), YOUTUBE_DATA("YouTube")
 }
 
 internal data class AppState(
@@ -55,9 +57,12 @@ internal data class AppState(
     val jellyfinServer: String = "",
     val jellyfinName: String = "",
     val jellyfinServerName: String = "",
+    val youtubeDataConnected: Boolean = false,
+    val youtubeDataAccount: String? = null,
     val connecting: Boolean = false,
     val connectingSoundcloud: Boolean = false,
     val connectingJellyfin: Boolean = false,
+    val connectingYouTubeData: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.SPOTIFY,
     val searching: Boolean = false,
     val results: List<TrackResult> = emptyList(),
@@ -92,6 +97,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val spotify = SpotifyService(application)
     private val soundcloud = SoundCloudService(application)
     private val jellyfin = JellyfinService(application)
+    private val youtubeData = YouTubeDataService(application)
     private val audioDb = AudioDbService()
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
@@ -111,7 +117,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             jellyfinConnected = jellyfin.connected,
             jellyfinServer = jellyfin.serverUrl,
             jellyfinName = jellyfin.userName,
-            jellyfinServerName = jellyfin.serverName
+            jellyfinServerName = jellyfin.serverName,
+            youtubeDataConnected = youtubeData.connected,
+            youtubeDataAccount = youtubeData.accountName
         )
     )
     val state = _state.asStateFlow()
@@ -139,7 +147,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 servicesLabel = apps.servicesLabel,
                 spotifyConnected = spotify.connected,
                 soundcloudConnected = soundcloud.connected,
-                jellyfinConnected = jellyfin.connected
+                jellyfinConnected = jellyfin.connected,
+                youtubeDataConnected = youtubeData.connected,
+                youtubeDataAccount = youtubeData.accountName
             )
         }
     }
@@ -343,6 +353,42 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     /** The server's own web interface, for opening in a browser. */
     fun jellyfinServerUrl(): String = jellyfin.serverUrl
 
+    fun connectYouTubeData(account: GoogleSignInAccount) {
+        if (_state.value.connectingYouTubeData) return
+        _state.update { it.copy(connectingYouTubeData = true, youtubeDataConnected = false) }
+        viewModelScope.launch {
+            try {
+                val accountName = youtubeData.connect(account)
+                _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = accountName) }
+                notify("YouTube read-only access connected. Search your playlists to find videos.")
+            } catch (e: Exception) {
+                _state.update { it.copy(youtubeDataConnected = false, youtubeDataAccount = null) }
+                notify(e.message ?: "Could not connect your YouTube account.")
+            } finally {
+                _state.update {
+                    it.copy(
+                        connectingYouTubeData = false,
+                        youtubeDataConnected = youtubeData.connected,
+                        youtubeDataAccount = youtubeData.accountName
+                    )
+                }
+            }
+        }
+    }
+
+    fun disconnectYouTubeData() {
+        youtubeData.disconnect()
+        _state.update {
+            it.copy(
+                youtubeDataConnected = false,
+                youtubeDataAccount = null,
+                results = if (it.searchProvider == SearchProvider.YOUTUBE_DATA) emptyList() else it.results,
+                searchError = null
+            )
+        }
+        notify("YouTube access disconnected on this device; Google services were asked to revoke the grant.")
+    }
+
     fun selectSearchProvider(provider: SearchProvider) {
         if (_state.value.searchProvider == provider) return
         _state.update { it.copy(searchProvider = provider, results = emptyList(), searchError = null) }
@@ -362,6 +408,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                     SearchProvider.SPOTIFY -> spotify.searchTracks(query)
                     SearchProvider.SOUNDCLOUD -> soundcloud.searchTracks(query)
                     SearchProvider.JELLYFIN -> jellyfin.searchTracks(query)
+                    SearchProvider.YOUTUBE_DATA -> youtubeData.searchTracks(query)
                 }
                 _state.update { it.copy(results = tracks) }
             } catch (e: Exception) {
@@ -372,7 +419,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                         searching = false,
                         spotifyConnected = spotify.connected,
                         soundcloudConnected = soundcloud.connected,
-                        jellyfinConnected = jellyfin.connected
+                        jellyfinConnected = jellyfin.connected,
+                        youtubeDataConnected = youtubeData.connected,
+                        youtubeDataAccount = youtubeData.accountName
                     )
                 }
             }
@@ -430,8 +479,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * Adds a song and, when auto-search is on, returns the YouTube *search* URL to open.
-     * Soundtrail never downloads; playback and saving stay in YouTube's own apps.
+     * Adds a song and, when auto-search is on, returns its YouTube Music search URL to open.
+     * Soundtrail never downloads or streams YouTube audio; playback stays in YouTube Music.
      */
     fun addToPlaylist(playlistId: String, rawTitle: String, rawArtist: String, rawUrl: String): String? {
         val title = rawTitle.trim().take(120)
@@ -441,7 +490,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             title.isEmpty() -> { notify("Add a song title first."); return null }
             playlists.find(playlistId) == null -> { notify("That playlist no longer exists."); return null }
             rawUrl.trim().isNotBlank() && link == null -> {
-                notify("That link is not a supported song URL. Leave it empty to just search YouTube.")
+                notify("That link is not a supported song URL. Leave it empty to search YouTube Music.")
                 return null
             }
         }

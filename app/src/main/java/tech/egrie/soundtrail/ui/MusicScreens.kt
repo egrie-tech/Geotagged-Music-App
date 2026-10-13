@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -69,9 +70,11 @@ internal fun MusicSearchScreen(
     state: AppState, onSearch: (String) -> Unit, onSelectProvider: (SearchProvider) -> Unit,
     onConnect: () -> Unit, onSelectTrack: (TrackResult) -> Unit, onAddLink: (String) -> Unit,
     onLookup: (String, String) -> Unit, onSelectLookup: (SongInfo) -> Unit,
-    onOpenYoutube: () -> Unit, onNotice: (String) -> Unit
+    onSearchYoutubeMusic: (String) -> Unit, onOpenYoutubeLibrary: () -> Unit,
+    onNotice: (String) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var youtubeMusicQuery by rememberSaveable { mutableStateOf("") }
     var youtubeLink by rememberSaveable { mutableStateOf("") }
     var lookupArtist by rememberSaveable { mutableStateOf("") }
     var lookupTitle by rememberSaveable { mutableStateOf("") }
@@ -88,11 +91,13 @@ internal fun MusicSearchScreen(
         SearchProvider.SPOTIFY -> state.spotifyConnected
         SearchProvider.SOUNDCLOUD -> state.soundcloudConnected
         SearchProvider.JELLYFIN -> state.jellyfinConnected
+        SearchProvider.YOUTUBE_DATA -> state.youtubeDataConnected
     }
     val accent = when (provider) {
         SearchProvider.SPOTIFY -> Palette.spotify
         SearchProvider.SOUNDCLOUD -> Palette.soundcloud
         SearchProvider.JELLYFIN -> Palette.jellyfin
+        SearchProvider.YOUTUBE_DATA -> Palette.youtube
     }
 
     LazyColumn(
@@ -107,8 +112,8 @@ internal fun MusicSearchScreen(
             Spacer(Modifier.height(8.dp))
             Text("Find a feeling.\nGive it a place.", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(8.dp))
-            Text("Find a track on Spotify, SoundCloud, or your own Jellyfin server, look up a " +
-                "song free, or bring a YouTube Music link.",
+            Text("Search Spotify, SoundCloud, Jellyfin, or your YouTube playlists with read-only " +
+                "Google authorization; search the YouTube Music app, or bring a song link.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(20.dp))
             SurfaceCard(Modifier.fillMaxWidth()) {
@@ -120,17 +125,24 @@ internal fun MusicSearchScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("Search ${provider.label}", style = MaterialTheme.typography.titleLarge)
                 }
-                // Three providers no longer share a line with the title on narrow screens.
+                // Provider choices remain reachable on narrow screens as the list grows.
                 Spacer(Modifier.height(10.dp))
                 ProviderSwitch(provider, onSelectProvider)
                 Spacer(Modifier.height(8.dp))
                 if (connected) {
-                    Text("Browse tracks with your connected account.",
-                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (provider == SearchProvider.YOUTUBE_DATA) {
+                            "Read-only playlist search${state.youtubeDataAccount?.let { " for $it" }.orEmpty()}. " +
+                                "The YouTube Data API does not expose the full YouTube Music library."
+                        } else "Browse tracks with your connected account.",
+                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
+                    )
                     Spacer(Modifier.height(13.dp))
                     OutlinedTextField(
                         value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Song, artist, or album") }, singleLine = true,
+                        placeholder = {
+                            Text(if (provider == SearchProvider.YOUTUBE_DATA) "Song, artist, or playlist" else "Song, artist, or album")
+                        }, singleLine = true,
                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { search() })
@@ -150,12 +162,66 @@ internal fun MusicSearchScreen(
                             SearchProvider.SPOTIFY ->
                                 "Connect Spotify to search its track catalog. You can still pin a " +
                                     "song link without signing in."
+                            SearchProvider.YOUTUBE_DATA ->
+                                "Connect a Google account on the Connect tab to search your own " +
+                                    "YouTube playlists with the YouTube Data API's read-only scope."
                         },
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(14.dp))
                     PrimaryButton("Connect ${provider.label}", onConnect, Modifier.fillMaxWidth())
                 }
+            }
+            Spacer(Modifier.height(12.dp))
+            SurfaceCard(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).background(Palette.youtube.copy(alpha = .16f), CircleShape),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Link, null, tint = Palette.youtube, modifier = Modifier.size(19.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text("YouTube Music", style = MaterialTheme.typography.titleLarge)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Searches open in YouTube Music or a Morphe-patched install when available, " +
+                    "including compatible microG-backed setups, or in a browser. Choose a track there, then share its " +
+                    "song link to Soundtrail to pin it.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(13.dp))
+                OutlinedTextField(
+                    value = youtubeMusicQuery, onValueChange = { youtubeMusicQuery = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Search YouTube Music") },
+                    placeholder = { Text("Song or artist") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        if (youtubeMusicQuery.isNotBlank()) onSearchYoutubeMusic(youtubeMusicQuery)
+                    })
+                )
+                Spacer(Modifier.height(11.dp))
+                PrimaryButton("Search YouTube Music", {
+                    onSearchYoutubeMusic(youtubeMusicQuery)
+                }, Modifier.fillMaxWidth(), enabled = youtubeMusicQuery.isNotBlank())
+                TextButton(onClick = onOpenYoutubeLibrary) {
+                    Text("Open your YouTube Music library  ↗", color = Palette.youtube)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Or pin a song link:", style = MaterialTheme.typography.labelMedium,
+                    color = Palette.secondary)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = youtubeLink, onValueChange = { youtubeLink = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("music.youtube.com/watch?v=…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done)
+                )
+                Spacer(Modifier.height(11.dp))
+                PrimaryButton("Pin this link", {
+                    val link = MusicLinkParser.fromText(youtubeLink)
+                    if (link?.provider == MusicProvider.YOUTUBE_MUSIC) onAddLink(link.url)
+                    else onNotice("Paste a YouTube Music song link (not a playlist or search page).")
+                }, Modifier.fillMaxWidth(), enabled = youtubeLink.isNotBlank())
             }
             if (state.searching) {
                 Spacer(Modifier.height(19.dp))
@@ -171,11 +237,14 @@ internal fun MusicSearchScreen(
             }
             if (state.results.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
-                SectionHeading("Tracks")
+                SectionHeading(if (provider == SearchProvider.YOUTUBE_DATA) "Playlist videos" else "Tracks")
                 Spacer(Modifier.height(4.dp))
             } else if (hasSearched && !state.searching && state.searchError == null && connected) {
                 Spacer(Modifier.height(14.dp))
-                Text("No tracks found. Try another search.", color = Palette.secondary)
+                Text(
+                    if (provider == SearchProvider.YOUTUBE_DATA) "No matching videos found in the playlists scanned." else "No tracks found. Try another search.",
+                    color = Palette.secondary
+                )
             }
         }
         items(state.results, key = { it.url }) { track ->
@@ -239,46 +308,14 @@ internal fun MusicSearchScreen(
         items(state.lookupResults, key = { "${it.title}|${it.artist}|${it.album}" }) { song ->
             LookupRow(song) { onSelectLookup(song) }
         }
-        item {
-            Spacer(Modifier.height(16.dp))
-            SurfaceCard(Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(34.dp).background(Palette.youtube.copy(alpha = .16f), CircleShape),
-                        contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Link, null, tint = Palette.youtube, modifier = Modifier.size(19.dp))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text("YouTube Music link", style = MaterialTheme.typography.titleLarge)
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Paste a song link, or use Share in YouTube Music and choose Soundtrail.",
-                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(13.dp))
-                OutlinedTextField(
-                    value = youtubeLink, onValueChange = { youtubeLink = it },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    placeholder = { Text("music.youtube.com/watch?v=…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done)
-                )
-                Spacer(Modifier.height(11.dp))
-                PrimaryButton("Pin this link", {
-                    val link = MusicLinkParser.fromText(youtubeLink)
-                    if (link?.provider == MusicProvider.YOUTUBE_MUSIC) onAddLink(link.url)
-                    else onNotice("Paste a YouTube Music song link (not a playlist or search page).")
-                }, Modifier.fillMaxWidth(), enabled = youtubeLink.isNotBlank())
-                TextButton(onClick = onOpenYoutube) {
-                    Text("Open YouTube Music  ↗", color = Palette.youtube)
-                }
-            }
-            Spacer(Modifier.height(24.dp))
-        }
     }
 }
 
 @Composable
 private fun ProviderSwitch(selected: SearchProvider, onSelect: (SearchProvider) -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(Palette.elevated).padding(3.dp),
+        Modifier.horizontalScroll(rememberScrollState())
+            .clip(RoundedCornerShape(50)).background(Palette.elevated).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         SearchProvider.entries.forEach { candidate ->
@@ -346,7 +383,9 @@ internal fun ConnectionsScreen(
     onOpenSpotify: () -> Unit, onOpenYoutube: () -> Unit, onOpenSoundcloud: () -> Unit,
     onOpenDashboard: () -> Unit, onOpenMicroG: () -> Unit, onOpenSoundcloudApps: () -> Unit,
     onConnectJellyfin: (String, String, String) -> Unit, onDisconnectJellyfin: () -> Unit,
-    onOpenJellyfin: () -> Unit
+    onOpenJellyfin: () -> Unit,
+    onConnectYouTubeData: () -> Unit, onDisconnectYouTubeData: () -> Unit,
+    onOpenYouTubeSetup: () -> Unit
 ) {
     var clientId by rememberSaveable(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
     var soundcloudId by rememberSaveable(state.soundcloudClientId) { mutableStateOf(state.soundcloudClientId) }
@@ -364,8 +403,8 @@ internal fun ConnectionsScreen(
         Spacer(Modifier.height(8.dp))
         Text("All your music.\nAll your places.", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(8.dp))
-        Text("Your accounts stay in their own apps — or on your own server. Soundtrail keeps " +
-            "only the links and pins you save.",
+        Text("Your accounts stay with their providers. Soundtrail uses only access you explicitly " +
+            "grant and keeps your location-based pins on this device.",
             color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(22.dp))
 
@@ -586,12 +625,41 @@ internal fun ConnectionsScreen(
                 }
             }
             Spacer(Modifier.height(13.dp))
+            Text("Optional YouTube playlist search", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            if (state.youtubeDataConnected) {
+                Text(
+                    "Read-only Google access${state.youtubeDataAccount?.let { " · $it" }.orEmpty()}. " +
+                        "Soundtrail searches videos in your own playlists; this is not the full YouTube Music library.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = onDisconnectYouTubeData) {
+                    Text("Disconnect and request revocation", color = Palette.coral)
+                }
+            } else {
+                Text("Use Google's supported sign-in and YouTube Data API read-only scope. Compatible " +
+                    "microG/GmsCore setups may provide the sign-in APIs; support depends on the device, " +
+                    "account, app certificate, and OAuth configuration. No private microG data is read.",
+                    color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(10.dp))
+                PrimaryButton(
+                    if (state.connectingYouTubeData) "Connecting…" else "Connect Google account",
+                    onConnectYouTubeData, Modifier.fillMaxWidth(),
+                    enabled = !state.connectingYouTubeData
+                )
+                TextButton(onClick = onOpenYouTubeSetup) {
+                    Text("Configure Google Cloud / YouTube API  ↗", color = Palette.youtube)
+                }
+            }
+            Spacer(Modifier.height(7.dp))
             Text(state.servicesLabel, color = Palette.lilac, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(7.dp))
-            Text("Sign in inside your YouTube Music app. On compatible devices, microG can provide Google sign-in for that app. Soundtrail does not see your Google account.",
+            Text("For app handoff, sign in inside YouTube Music. The optional Soundtrail OAuth " +
+                "connection is separate and only enables read-only YouTube Data API playlist search.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(7.dp))
-            Text("There is no public YouTube Music library or playback API here. Share a song link to pin it; tapping play opens your music app (or web).",
+            Text("Soundtrail recognizes the Morphe-patched YouTube Music app and can open its Library. Morphe has no third-party account API; the separate official Data API connection only searches accessible playlists, not all saved songs, albums, mixes, or the complete Music library. Share links from the app to pin other songs; playback stays in the music app.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(15.dp))
             PrimaryButton("Open YouTube Music", onOpenYoutube, Modifier.fillMaxWidth())
@@ -605,7 +673,7 @@ internal fun ConnectionsScreen(
                 Text("Private by design", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(7.dp))
-            Text("Location is requested only when you tap Locate. Pins stay on your phone; Spotify and SoundCloud tokens are encrypted with Android Keystore. No server, scraping, or background tracking.",
+            Text("Location is requested only when you tap Locate. Pins stay on your phone. Spotify, SoundCloud, Jellyfin, and the YouTube account label are protected with Android Keystore. YouTube OAuth tokens are requested from Google services when needed and are not stored by Soundtrail. No Soundtrail backend, scraping, or background tracking.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(27.dp))
