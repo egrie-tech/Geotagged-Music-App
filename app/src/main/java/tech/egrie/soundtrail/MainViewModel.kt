@@ -766,6 +766,10 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    fun setAutoSearchYoutube(enabled: Boolean) {
+        _state.update { it.copy(autoSearchYoutube = enabled) }
+    }
+
     fun removeOfflineAudio(playlistId: String, itemId: String) {
         if (rejectMutationWhileSyncing()) return
         val item = playlists.find(playlistId)?.items?.firstOrNull { it.id == itemId }
