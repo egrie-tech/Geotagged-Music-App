@@ -56,8 +56,8 @@ Automatic sync is **off by default**. Enable **Sync automatically when Soundtrai
 
 ### Deploy
 
-1. Deploy [`server/docker-compose.yml`](server/docker-compose.yml) and a TLS reverse proxy for a domain you control. See [`server/Caddyfile.example`](server/Caddyfile.example).
-2. From the repository, run `cd server && docker compose up -d --build`. The service binds to loopback for a host proxy by default; do not expose port 8080 directly.
+1. Run the sync server natively (Python 3.10+, no Docker, any OS or CPU) behind a TLS reverse proxy for a domain you control. See [`server/README.md`](server/README.md) and [`server/Caddyfile.example`](server/Caddyfile.example).
+2. From the repository, run `cd server && python3 run.py` (`py -3 run.py` on Windows). The service binds to loopback by default for the proxy; do not expose port 8080 directly.
 3. In Soundtrail, open **Connect → Self-hosted cloud sync**, enter the public `https://` URL, and create an account. Save the recovery key, then tap **Sync now**. On another device, sign in to the same server and enter the saved key.
 
 Backups remain useful as a separate portable JSON export; they are not encrypted cloud sync.
@@ -78,7 +78,7 @@ Before connecting an account:
 2. Configure the OAuth consent screen (choose the appropriate audience and add your account as a test user while developing). Google may require verification or test-user access for the YouTube read-only scope, depending on the project and distribution.
 3. Enable **YouTube Data API v3** in that project.
 4. Under **APIs & Services → Credentials**, create an **Android OAuth client ID** for package `tech.egrie.soundtrail`. Add the SHA-1 signing-certificate fingerprint for the APK you install. This repository's shared debug key uses `21:D3:90:27:4A:69:5B:3F:C0:C3:84:A1:3E:70:F1:95:3A:A8:32:2F` (verify with `./gradlew :app:signingReport`, the `debug` variant); a build signed with a different certificate needs its own Android OAuth client/fingerprint. Do not create a Web client or put a client secret in the app.
-5. On a compatible Google Play services or microG/GmsCore setup, ensure the Google account and OAuth APIs are configured. In Soundtrail's **Connect** tab, choose **Connect Google account**, review and approve the read-only permission, then choose **YouTube** on the **Search** tab.
+5. On a compatible microG/GmsCore (or Google Play services) setup, add your Google account to microG and make sure the account and OAuth APIs are configured. In Soundtrail's **Connect** tab, choose **Connect Google account**. If exactly one Google-type account is on the device (your microG account), Soundtrail connects it directly with no picker and asks you to approve the read-only permission only if Google requires it. If there are none or several, the Google sign-in screen opens so you can choose or add one. Then choose **YouTube** on the **Search** tab. Soundtrail asks for the **Accounts** permission (`GET_ACCOUNTS`) to see the microG account; deny it and the sign-in screen is used instead.
 
 Soundtrail validates the grant with a read-only `playlists.list` request. Search scans at most the first 50 of your playlists and the first 50 video items in each, then matches the terms locally and returns at most 20 results. This is deliberately bounded; older playlists/items beyond those pages won't be found. It searches playlist videos only, not the complete YouTube Music catalog or all saved Music-library types. If Google sign-in fails on microG, check the installed GmsCore version, account setup, package name/signing fingerprint, and Cloud OAuth/API configuration; Soundtrail does not bypass those checks.
 

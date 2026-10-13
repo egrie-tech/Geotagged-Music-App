@@ -750,7 +750,8 @@ internal fun ConnectionsScreen(
                         Text("Disconnect and request revocation", color = Palette.coral)
                     }
                 } else {
-                    Text("Optional Google sign-in enables read-only search of your playlists. Device support " +
+                    Text("Optional read-only playlist search. Connect uses the single Google (microG) account on " +
+                        "this device, or opens the Google sign-in screen if there is none or several. Device support " +
                         "depends on Google services and OAuth setup; no private microG data is read.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(10.dp))

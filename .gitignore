@@ -19,6 +19,10 @@ local.properties
 __pycache__/
 *.py[cod]
 .venv/
+# Local sync database (default location when SOUNDTRAIL_DB is unset)
+server/data/
+*.sqlite3
+*.sqlite3-*
 
 # OS / editor
 .DS_Store

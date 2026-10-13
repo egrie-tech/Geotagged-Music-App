@@ -1,12 +1,13 @@
 package tech.egrie.soundtrail.integrations
 
 import android.accounts.Account
+import android.accounts.AccountManager
 import android.content.Context
+import android.content.pm.PackageManager
 import com.google.android.gms.auth.GoogleAuthException
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.Dispatchers
@@ -21,14 +22,23 @@ import java.io.IOException
 
 private const val YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 private const val YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
+private const val GOOGLE_ACCOUNT_TYPE = "com.google"
 
-class YouTubeDataException(message: String) : Exception(message)
+open class YouTubeDataException(message: String) : Exception(message)
 
 /**
- * Read-only YouTube Data API access through the public Google Sign-In/GmsCore contract.
- * microG can provide that contract on compatible devices; this class never reads microG's
- * private account database or stores an access/refresh token. Tokens are requested from GmsCore
- * when needed and remain under its account/token management.
+ * Google approval for the read-only scope is missing for this account. The caller should run the
+ * interactive Google Sign-In flow, which shows the consent screen, and then connect again.
+ */
+class YouTubeConsentRequiredException : YouTubeDataException(
+    "Approve the YouTube read-only permission for this Google account, then connect again."
+)
+
+/**
+ * Read-only YouTube Data API access through microG (or Google Play services) account storage.
+ * The account is chosen from the accounts microG registers under the `com.google` type; the
+ * OAuth token is requested from GmsCore when needed. This class never reads microG's private
+ * database and stores no access or refresh token; it keeps only the account name and type.
  */
 internal class YouTubeDataService(context: Context) {
     private val appContext = context.applicationContext
@@ -40,25 +50,26 @@ internal class YouTubeDataService(context: Context) {
     private data class CachedLibrary(val cachedAt: Long, val playlists: List<CachedPlaylist>)
 
     val accountName: String? get() = secrets.get("youtube_data_account")?.takeIf(String::isNotBlank)
-    val connected: Boolean get() = accountName != null &&
-        GoogleSignIn.getLastSignedInAccount(appContext)?.account != null
+    val connected: Boolean get() = accountName != null && secrets.get("youtube_data_account_name") != null
 
-    suspend fun connect(account: GoogleSignInAccount): String {
-        // Avoid showing a previous Google account if the user switched accounts in the sign-in UI.
+    /** Connects a microG/Google account chosen by the user or found on the device. */
+    suspend fun connect(account: Account, label: String?): String {
+        // Avoid showing a previous Google account if the user switched accounts.
         cachedLibrary = null
         secrets.remove("youtube_data_account")
-        val googleAccount = account.account
-            ?: throw YouTubeDataException("Google Sign-In did not return an account. Try again.")
-        val token = accessToken(googleAccount)
+        secrets.remove("youtube_data_account_name")
+        val token = accessToken(account)
         // Verify that the user's consent and YouTube Data API configuration work before saving.
         apiGet(
             "playlists",
             listOf("part" to "snippet", "mine" to "true", "maxResults" to "1"),
             token
         )
-        val name = account.email?.takeIf(String::isNotBlank)
-            ?: account.displayName?.takeIf(String::isNotBlank)
+        val name = label?.takeIf(String::isNotBlank)
+            ?: account.name.takeIf(String::isNotBlank)
             ?: "YouTube account"
+        secrets.put("youtube_data_account_name", account.name)
+        secrets.put("youtube_data_account_type", account.type)
         secrets.put("youtube_data_account", name)
         return name
     }
@@ -67,6 +78,8 @@ internal class YouTubeDataService(context: Context) {
     fun disconnect() {
         cachedLibrary = null
         secrets.remove("youtube_data_account")
+        secrets.remove("youtube_data_account_name")
+        secrets.remove("youtube_data_account_type")
         runCatching { GoogleSignIn.getClient(appContext, signInOptions()).revokeAccess() }
     }
 
@@ -115,16 +128,14 @@ internal class YouTubeDataService(context: Context) {
     }
 
     private suspend fun accessToken(account: Account? = null): String = withContext(Dispatchers.IO) {
-        val selectedAccount = account ?: GoogleSignIn.getLastSignedInAccount(appContext)?.account
+        val selectedAccount = account ?: storedAccount()
             ?: throw YouTubeDataException("Your Google account is no longer connected. Connect again.")
         try {
             GoogleAuthUtil.getToken(appContext, selectedAccount, "oauth2:$YOUTUBE_READONLY_SCOPE")
                 .takeIf(String::isNotBlank)
                 ?: throw YouTubeDataException("Google services returned an empty YouTube token.")
         } catch (e: UserRecoverableAuthException) {
-            throw YouTubeDataException(
-                "Approve the YouTube read-only permission in Google services, then connect again."
-            )
+            throw YouTubeConsentRequiredException()
         } catch (e: GoogleAuthException) {
             throw YouTubeDataException(
                 "Google services could not authorize YouTube read-only access. Check the microG/Google account setup."
@@ -132,6 +143,12 @@ internal class YouTubeDataService(context: Context) {
         } catch (e: IOException) {
             throw YouTubeDataException("Could not reach Google services. Check your connection and try again.")
         }
+    }
+
+    private fun storedAccount(): Account? {
+        val name = secrets.get("youtube_data_account_name")?.takeIf(String::isNotBlank) ?: return null
+        val type = secrets.get("youtube_data_account_type")?.takeIf(String::isNotBlank) ?: GOOGLE_ACCOUNT_TYPE
+        return Account(name, type)
     }
 
     private suspend fun apiGet(
@@ -160,6 +177,17 @@ internal class YouTubeDataService(context: Context) {
         private const val MAX_PLAYLISTS_TO_SEARCH = 50
         private const val MAX_RESULTS = 20
         private const val LIBRARY_CACHE_MS = 120_000L
+
+        /**
+         * Google-type accounts registered with the device's account manager (microG's account
+         * store when microG is the Google services provider). Requires the GET_ACCOUNTS permission.
+         */
+        fun deviceGoogleAccounts(context: Context): List<Account> {
+            if (context.checkSelfPermission(android.Manifest.permission.GET_ACCOUNTS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) return emptyList()
+            return AccountManager.get(context).getAccountsByType(GOOGLE_ACCOUNT_TYPE).toList()
+        }
 
         fun signInOptions(): GoogleSignInOptions = GoogleSignInOptions.Builder(
             GoogleSignInOptions.DEFAULT_SIGN_IN

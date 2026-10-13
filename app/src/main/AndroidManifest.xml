@@ -10,6 +10,8 @@
     <!-- Background Jellyfin streaming: the playback notification's foreground service type. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lists the device's microG/Google account so Connect Google can use it without a picker. -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <!-- Android 11+ limits package visibility. These are only used for app-status checks and handoff. -->

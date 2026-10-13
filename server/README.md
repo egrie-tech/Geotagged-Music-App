@@ -12,44 +12,79 @@ Keep the machine, database volume, TLS proxy, backups, logs, and `/tmp` storage 
 
 The server applies in-process sliding-window limits to account creation, login, sync reads/writes, checkpoints, account deletion, and extraction; extraction also has a two-job concurrency cap. Current defaults are 5 account creations/hour/IP, 20 logins/minute/IP, 600 sync reads and writes/minute/IP, 10 checkpoints/minute/IP, 5 account deletions/hour/IP, and 30 extraction requests/minute/IP plus 20/minute/account. In-process limits reset on restart and are per instance, so keep the API behind a reverse proxy with its own request/body limits and rate limiting, especially if you run multiple workers. The app trusts `X-Forwarded-For` only when its direct peer is private/loopback; configure the proxy to overwrite or sanitize client-supplied forwarding headers before passing them upstream. There is no email verification or password-reset service. An authenticated account-deletion endpoint is available.
 
-## Run with Docker Compose
+## Run natively (no Docker, any OS and CPU)
+
+The server is plain Python. It runs on Linux, macOS, Windows, and BSD, on x86-64, ARM64, and other CPUs with a Python 3.10+ interpreter. Docker is not required.
 
 1. Point a DNS name such as `sync.example.net` at your server.
-2. Install Docker Engine and the Compose plugin.
-3. Choose a reverse proxy that obtains and renews TLS certificates. For a Caddy container on the same Docker network, adapt [`Caddyfile.example`](Caddyfile.example); the upstream is `soundtrail-sync:8080`. If Caddy runs directly on the host, publish only to loopback and proxy `127.0.0.1:8080`.
-4. Start the service:
+2. Install Python 3.10 or newer (`python3 --version`, or `py -3 --version` on Windows).
+3. Optional, for YouTube audio extraction only: install [FFmpeg](https://ffmpeg.org/download.html) and make `ffmpeg` available on `PATH`.
+4. Start the service from the `server` folder:
 
    ```bash
    cd server
-   docker compose up -d --build
+   python3 run.py          # Windows: py -3 run.py
    ```
 
-The SQLite database lives in the named `soundtrail-sync-data` volume at `/data/soundtrail.sqlite3`. Back up that volume, test restoration, and keep an off-host copy. A consistent archive can be made with the service stopped; these commands use the container's attached volume, so they work regardless of Compose's generated volume name:
+   `run.py` creates a private `.venv`, installs the pinned dependencies, and starts the API. The first run downloads packages; later runs start immediately. Other commands:
+
+   - `python3 run.py --setup` prepares the environment without starting the server.
+   - `python3 run.py --test` runs the API test suite.
+
+5. Put a reverse proxy with TLS in front of it. The API listens on `127.0.0.1:8080` by default. Keep that loopback default and proxy to it, for example with [`Caddyfile.example`](Caddyfile.example) (Caddy runs on the same machine, so the upstream is `127.0.0.1:8080`). Do not expose port 8080 directly.
+
+The SQLite database is created at `server/data/soundtrail.sqlite3`. Set `SOUNDTRAIL_DB` to store it elsewhere (for example on a dedicated disk).
+
+### Run as a background service
+
+Use your platform's service manager so the API restarts after reboots. Run it as a dedicated, unprivileged user.
+
+**Linux (systemd)**: save as `/etc/systemd/system/soundtrail-sync.service`, adjusting `User`, `WorkingDirectory`, and the paths:
+
+```ini
+[Unit]
+Description=Soundtrail encrypted sync API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=soundtrail
+WorkingDirectory=/opt/soundtrail/server
+Environment=SOUNDTRAIL_HOST=127.0.0.1
+Environment=PORT=8080
+Environment=SOUNDTRAIL_DB=/var/lib/soundtrail/soundtrail.sqlite3
+ExecStart=/usr/bin/python3 /opt/soundtrail/server/run.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then run `sudo systemctl daemon-reload && sudo systemctl enable --now soundtrail-sync`.
+
+**macOS (launchd)** and **Windows** (Task Scheduler, or a service wrapper such as NSSM): run `python3 run.py` (or `py -3 run.py`) from the `server` folder at boot, with the working directory set to `server`, and set `SOUNDTRAIL_HOST`/`SOUNDTRAIL_DB` as environment variables for that task.
+
+### Back up the database
+
+Back up the database, not a live copy. Stop the service, then archive the whole `data` folder (the database plus its WAL side-files):
 
 ```bash
+# Linux/macOS, from the server folder, with the service stopped
 mkdir -p backups && chmod 700 backups
-docker compose stop soundtrail-sync
-cid=$(docker compose ps -aq soundtrail-sync)
-docker run --rm --volumes-from "$cid" -v "$PWD/backups:/backup" alpine:3.20 \
-  sh -c 'tar -czf /backup/soundtrail-data.tar.gz -C /data .'
-docker compose start soundtrail-sync
+tar -czf backups/soundtrail-data.tar.gz -C . data
 ```
 
-To restore that archive, stop the service, keep a copy of the current archive/database first, and extract into the same volume:
+On Windows, stop the task and copy the `data` folder to a safe location. To restore, stop the service, keep a copy of the current folder, and replace the `data` folder (or the `SOUNDTRAIL_DB` location) with the backup contents. Test restoration, and keep an off-host copy.
 
-```bash
-cid=$(docker compose ps -aq soundtrail-sync)
-docker compose stop soundtrail-sync
-docker run --rm --volumes-from "$cid" -v "$PWD/backups:/backup:ro" alpine:3.20 \
-  sh -c 'rm -f /data/soundtrail.sqlite3* && tar -xzf /backup/soundtrail-data.tar.gz -C /data'
-docker compose start soundtrail-sync
-```
+The `/health` endpoint reports liveness only. Extraction needs outbound network access to YouTube and enough temporary disk space for up to two concurrent 250 MiB downloads plus working files.
 
-Do not expose the app's port directly to the internet; use the HTTPS proxy. The `/health` endpoint reports liveness only. Extraction needs outbound network access to YouTube and enough temporary disk space for up to two concurrent 250 MiB downloads plus working files.
+### Dependencies
 
-For a host-installed reverse proxy, the Compose file publishes the service as `127.0.0.1:8080`; for a proxy container on the same Docker network, remove the `ports` mapping and use the Compose service name instead. Never configure the Android client with the internal Docker hostname: enter the public `https://` URL of your proxy.
+- `requirements.txt` — `yt-dlp` (pure Python), used only by the optional YouTube audio endpoint.
+- `requirements-js.txt` — `deno`, a JavaScript runtime for yt-dlp's YouTube challenge solver. It is optional: Deno publishes wheels for Linux x86-64/ARM64 (glibc), macOS x86-64/ARM64, and Windows x86-64 only. On other platforms `run.py` skips it; install Deno or Node.js yourself and it will be used from `PATH`.
+- FFmpeg — installed separately (see step 3).
 
-The container installs pinned `yt-dlp`, its default YouTube JavaScript components, a pinned Deno runtime, and FFmpeg for audio-stream assembly. Update these pins deliberately, rebuild, and test extraction after upstream changes. The extractor is optional in the app, but the same API image includes it.
+Update the pins deliberately, then re-test extraction after upstream changes.
 
 ## HTTP API
 
@@ -69,13 +104,13 @@ Each account's cursor is independent and every sync read/write is scoped to that
 ## Configuration
 
 - `PORT` — listen port (default `8080`).
-- `SOUNDTRAIL_HOST` — listen address (default `0.0.0.0` inside the container).
-- `SOUNDTRAIL_DB` — SQLite file (default `/data/soundtrail.sqlite3`).
+- `SOUNDTRAIL_HOST` — listen address (default `127.0.0.1`; keep it on loopback behind a TLS proxy).
+- `SOUNDTRAIL_DB` — SQLite file (default `server/data/soundtrail.sqlite3`).
 
 The API intentionally has no password-reset or key-recovery endpoint. If a user loses their 256-bit recovery key, resetting the account password cannot recover encrypted content. Account deletion removes remote encrypted data; it does not erase the user's local device library. If the database is lost, only a database backup can restore the encrypted event log and checkpoints.
 
 ## Run the API tests
 
 ```bash
-python3 -m unittest discover -s . -v
+python3 run.py --test   # or: python3 -m unittest discover -s . -v
 ```
