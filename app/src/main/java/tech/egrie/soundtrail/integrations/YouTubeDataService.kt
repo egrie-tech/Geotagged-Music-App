@@ -52,6 +52,20 @@ class YouTubeConsentRequiredException : YouTubeDataException(
 /** The Data API rejected the current access token. The OAuth path refreshes once before surfacing this. */
 internal class YouTubeAuthExpiredException(message: String) : YouTubeDataException(message)
 
+/** One playlist item as pulled from the YouTube Data API, ready to turn into a Soundtrail entry. */
+internal data class YouTubeImportedItem(
+    val videoId: String,
+    val title: String,
+    val artist: String
+)
+
+/** One playlist as pulled from YouTube: stable YouTube playlist id, display title, all items. */
+internal data class YouTubeImportedPlaylist(
+    val playlistId: String,
+    val title: String,
+    val items: List<YouTubeImportedItem>
+)
+
 /**
  * Read-only YouTube Data API access with two mutually exclusive sign-in methods. The
  * Google-account method uses the accounts microG (or Google Play services) registers under the
@@ -305,7 +319,20 @@ internal class YouTubeDataService(context: Context) {
      */
     suspend fun importPlaylists(): List<YouTubeImportedPlaylist> {
         if (!connected) throw YouTubeDataException("Connect a Google account to import your YouTube playlists.")
-        val token = accessToken()
+
+        // Only one method is ever connected; the browser-OAuth token refreshes itself.
+        val useOAuth = oauthConnected
+        try {
+            return importWithToken(if (useOAuth) oauthAccessToken() else accessToken())
+        } catch (e: YouTubeAuthExpiredException) {
+            // A long import can outlive its access token. Refresh once, never loop.
+            if (!useOAuth) throw e
+            return importWithToken(oauthAccessToken(forceRefresh = true))
+        }
+    }
+
+    /** Fetches every playlist with [token], caches the snapshot, and parses it for import. */
+    private suspend fun importWithToken(token: String): List<YouTubeImportedPlaylist> {
         val snapshot = fetchAllPlaylists(token)
         cachedLibrary = CachedLibrary(System.currentTimeMillis(), snapshot)
         return snapshot.map { cached ->
@@ -340,11 +367,15 @@ internal class YouTubeDataService(context: Context) {
 
     private suspend fun searchWithToken(query: String, token: String): List<TrackResult> {
         val now = System.currentTimeMillis()
+        // Both branches produce a CachedLibrary, so the elvis result has one usable type.
         val snapshot = cachedLibrary?.takeIf {
             now >= it.cachedAt && now - it.cachedAt < LIBRARY_CACHE_MS
-        } ?: fetchAllPlaylists(token).also { cachedLibrary = CachedLibrary(System.currentTimeMillis(), it) }
+        } ?: run {
+            val fetched = fetchAllPlaylists(token)
+            CachedLibrary(System.currentTimeMillis(), fetched).also { cachedLibrary = it }
+        }
 
-        return snapshot.flatMap { playlist ->
+        return snapshot.playlists.flatMap { playlist ->
             YouTubeApiParser.matchingTracks(playlist.body, query, playlist.title)
         }.distinctBy { it.url }.take(MAX_RESULTS)
     }
