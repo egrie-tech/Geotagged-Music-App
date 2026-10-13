@@ -8,7 +8,7 @@ import tech.egrie.soundtrail.data.FileStore
 import tech.egrie.soundtrail.data.GeoPoint
 import java.util.Locale
 
-/** App handoffs only. microG is never used as a music API or given this app's credentials. */
+/** Device app detection and optional external browsing. Music playback now happens directly in-app. */
 class DeviceApps(private val context: Context) {
     private fun installed(name: String): Boolean = try {
         @Suppress("DEPRECATION")
@@ -46,10 +46,13 @@ class DeviceApps(private val context: Context) {
         else -> "No Google services detected"
     }
 
+    /**
+     * Legacy external playback — no longer used for primary music playback since all music
+     * now plays directly in Soundtrail. Kept for optional "open in external app" actions.
+     */
     fun play(link: MusicLink): Boolean {
         val verified = MusicLinkParser.parse(link.url) ?: return false
-        // A Jellyfin song is streamed by Soundtrail from the user's own server, never handed off.
-        if (verified.provider == MusicProvider.JELLYFIN) return false
+        // All providers now play in-app; this is only a fallback for opening in external apps if user wants.
         val preferredPackage = when (verified.provider) {
             MusicProvider.SPOTIFY -> "com.spotify.music".takeIf(::installed)
             MusicProvider.YOUTUBE_MUSIC -> youtubeMusicPackage
@@ -101,7 +104,7 @@ class DeviceApps(private val context: Context) {
         return start(Intent.createChooser(intent, null))
     }
 
-    /** Plays a locally imported song in the user's chosen music player. */
+    /** Legacy: local files now play directly in-app via JellyfinPlayer. Kept for share/open actions. */
     fun playLocalFile(fileName: String): Boolean {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(FileStore(context).openUri(fileName), "audio/*")

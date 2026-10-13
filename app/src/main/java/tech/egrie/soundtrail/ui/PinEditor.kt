@@ -161,7 +161,7 @@ internal fun PinEditor(
             onSave(PinInput(title, artist, place, note, url, point))
         }, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
-        Text("Pins are saved on this device. Playback opens in your music app.",
+        Text("Pins are saved on this device. All music plays directly in Soundtrail.",
             color = Palette.muted, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(28.dp))
     }

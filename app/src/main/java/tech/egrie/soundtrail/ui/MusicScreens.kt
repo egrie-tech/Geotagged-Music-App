@@ -182,7 +182,7 @@ internal fun MusicSearchScreen(
                 )
                 if (youtubeExpanded) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Search opens the music app when available, or a browser.",
+                    Text("Search YouTube Music and paste song links — all playback happens directly in Soundtrail.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
@@ -840,7 +840,7 @@ internal fun ConnectionsScreen(
                 Spacer(Modifier.height(7.dp))
                 Text(state.servicesLabel, color = Palette.lilac, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(7.dp))
-                Text("App handoff uses the music app. Google sign-in powers playlist search AND playlist import; Music-only library items remain in the YouTube Music app.",
+                Text("All music now plays directly in Soundtrail. Google sign-in powers playlist search AND playlist import; YouTube audio plays in-app via your self-hosted server or offline files.",
                     color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(15.dp))
                 PrimaryButton("Open YouTube Music", onOpenYoutube, Modifier.fillMaxWidth())

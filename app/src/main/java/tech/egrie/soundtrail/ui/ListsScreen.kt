@@ -373,12 +373,12 @@ private fun WatchCard(state: AppState, actions: ListsActions) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Search YouTube Music when adding songs", style = MaterialTheme.typography.titleMedium)
-                Text("Opens the app or browser; playback stays there.",
+                Text("Adds a YouTube link for in-app playback; all audio plays inside Soundtrail.",
                     color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             }
             Switch(checked = state.autoSearchYoutube, onCheckedChange = actions.onToggleAutoSearch)
         }
-        Text("Live YouTube Music playback stays in its app; the separate offline-audio action is rights-confirmed, audio-only, and uses your self-hosted server.",
+        Text("All music now plays directly in Soundtrail — including local files, Jellyfin, Spotify previews, SoundCloud, and YouTube via your self-hosted server.",
             color = Palette.muted, style = MaterialTheme.typography.labelMedium)
     }
 }
@@ -400,7 +400,7 @@ private fun PlaylistDetailCard(
             }
         }
         if (playlist.items.isEmpty()) {
-            Text("Empty. Add a song below — a link is optional; without one, Soundtrail searches YouTube Music for it.",
+            Text("Empty. Add a song below — a link is optional; all music plays directly in Soundtrail.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(10.dp))
         }
@@ -534,7 +534,7 @@ private fun PlaylistDetailCard(
             title = ""; artist = ""; url = ""
         }, Modifier.fillMaxWidth(), enabled = title.isNotBlank())
         Spacer(Modifier.height(8.dp))
-        Text("⬇ Get hands other links to an app you choose. YouTube items have an optional audio-only extraction action; Jellyfin items use the server's authenticated download. ♪ attaches audio you already own.",
+        Text("All songs play directly in Soundtrail. Jellyfin uses your server's authenticated stream; YouTube can be extracted for offline playback via your self-hosted server. ♪ attaches audio you already own for in-app playback.",
             color = Palette.muted, style = MaterialTheme.typography.labelMedium)
     }
     pendingYouTubeDownloadId?.let { videoItemId ->

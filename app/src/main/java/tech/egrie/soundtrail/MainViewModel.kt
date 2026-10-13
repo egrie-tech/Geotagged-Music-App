@@ -434,9 +434,148 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         )
     }
 
+    /** Unified in-app playback for any provider: local file, Jellyfin, Spotify preview, SoundCloud, YouTube. */
+    fun playPin(pin: tech.egrie.soundtrail.data.MusicPin) {
+        val link = MusicLink(pin.provider, pin.url)
+        when (pin.provider) {
+            MusicProvider.JELLYFIN -> playJellyfin(link, pin.title, pin.artist)
+            else -> playLink(link, pin.title, pin.artist, pin.id)
+        }
+    }
+
+    fun playPlaylistItemUnified(item: PlaylistItem) {
+        // Local offline copy always wins — plays directly in-app, no network.
+        item.localFile?.let { name ->
+            files.fileFor(name)?.let { file ->
+                player.playLocalFile(
+                    title = item.title,
+                    artist = item.artist,
+                    itemId = item.id,
+                    file = file,
+                    provider = item.provider ?: MusicProvider.YOUTUBE_MUSIC
+                )
+                return
+            }
+        }
+        val url = item.url
+        if (url != null) {
+            val link = MusicLinkParser.parse(url)
+            if (link != null) {
+                if (link.provider == MusicProvider.JELLYFIN) {
+                    playJellyfin(link, item.title, item.artist)
+                    return
+                }
+                playLink(link, item.title, item.artist, item.id)
+                return
+            }
+        }
+        // No link — try to find a local search fallback? For now, notify.
+        notify("This song has no playable link. Add a supported link or attach audio you own.")
+    }
+
+    // Keeps the last YouTube in-app playback temp file so we can clean it up on next play.
+    private var lastYouTubePlaybackFile: java.io.File? = null
+
+    private fun playLink(link: MusicLink, title: String, artist: String, itemId: String) {
+        viewModelScope.launch {
+            try {
+                when (link.provider) {
+                    MusicProvider.JELLYFIN -> {
+                        // Already handled above, but keep for safety
+                        playJellyfin(link, title, artist)
+                    }
+                    MusicProvider.SPOTIFY -> {
+                        player.setBuffering(title, artist, itemId, MusicProvider.SPOTIFY)
+                        val preview = spotify.resolvePlayableUrl(link)
+                        if (preview != null) {
+                            player.playRemoteUrl(title, artist, itemId, preview, MusicProvider.SPOTIFY)
+                        } else {
+                            player.stop()
+                            notify("No Spotify preview available for this track. Spotify full playback needs their app, but Soundtrail plays 30-second previews when Spotify provides them. Try searching again to get a preview.")
+                        }
+                    }
+                    MusicProvider.SOUNDCLOUD -> {
+                        player.setBuffering(title, artist, itemId, MusicProvider.SOUNDCLOUD)
+                        val stream = try {
+                            soundcloud.resolvePlayableUrl(link)
+                        } catch (_: Exception) { null }
+                        if (stream != null) {
+                            player.playRemoteUrl(title, artist, itemId, stream, MusicProvider.SOUNDCLOUD)
+                        } else {
+                            player.stop()
+                            notify("Couldn't get a SoundCloud stream for this track. It may be private or require re-connecting SoundCloud.")
+                        }
+                    }
+                    MusicProvider.YOUTUBE_MUSIC -> {
+                        val videoId = MusicLinkParser.youtubeVideoId(link.url)
+                        if (videoId == null) {
+                            notify("That YouTube link is not a playable video.")
+                            return@launch
+                        }
+                        if (!cloudSync.connected) {
+                            notify("Connect your sync server to play YouTube audio in-app, or download it for offline playback first.")
+                            return@launch
+                        }
+                        player.setBuffering(title, artist, itemId, MusicProvider.YOUTUBE_MUSIC)
+                        // Clean up previous in-app YouTube playback temp file.
+                        lastYouTubePlaybackFile?.let { prev ->
+                            withContext(Dispatchers.IO) { files.discardDownloadTemp(prev) }
+                            lastYouTubePlaybackFile = null
+                        }
+                        // Download to a temp file that is NOT counted as offline storage (.part is excluded).
+                        val temp = withContext(Dispatchers.IO) { files.newDownloadTemp() }
+                        try {
+                            cloudSync.downloadYouTubeAudio(videoId, temp, userConfirmedRights = true) { _, _, _ -> }
+                            if (!temp.isFile || temp.length() == 0L) {
+                                notify("Couldn't prepare YouTube audio for playback.")
+                                withContext(Dispatchers.IO) { files.discardDownloadTemp(temp) }
+                                player.stop()
+                                return@launch
+                            }
+                            lastYouTubePlaybackFile = temp
+                            player.playLocalFile(title, artist, itemId, temp, MusicProvider.YOUTUBE_MUSIC)
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.IO) { files.discardDownloadTemp(temp) }
+                            player.stop()
+                            notify(e.message ?: "YouTube in-app playback failed.")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                notify(e.message ?: "Couldn't play this song in-app.")
+            }
+        }
+    }
+
+    /** Attempts to play a TrackResult directly (from search), using its playableUrl if present. */
+    fun playTrackResult(track: TrackResult) {
+        track.playableUrl?.let { url ->
+            player.playRemoteUrl(track.title, track.artist, track.url, url, track.provider)
+            return
+        }
+        // No direct playable URL in result — resolve via provider APIs.
+        val link = MusicLinkParser.parse(track.url)
+        if (link != null) {
+            playLink(link, track.title, track.artist, track.url)
+        } else {
+            notify("No playable audio for this track.")
+        }
+    }
+
     fun togglePlayback() = player.toggle()
 
-    fun stopPlayback() = player.stop()
+    fun stopPlayback() {
+        player.stop()
+        // Optionally keep the YouTube playback cache for quick replay; clean up only on next YouTube play
+        // or when explicitly cleared. We don't delete here to allow pause/resume to keep working.
+    }
+
+    fun clearYouTubePlaybackCache() {
+        lastYouTubePlaybackFile?.let { file ->
+            viewModelScope.launch(Dispatchers.IO) { files.discardDownloadTemp(file) }
+            lastYouTubePlaybackFile = null
+        }
+    }
 
     /** A link to the item in Jellyfin's own web client, for sharing with people on that server. */
     fun jellyfinWebUrl(link: MusicLink): String? {
@@ -770,22 +909,22 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * Adds a song and, when auto-search is on, returns its YouTube Music search URL to open.
-     * YouTube offline audio is a separate, rights-confirmed action through the self-hosted API.
+     * Adds a song to a playlist. All music now plays directly in-app, so no external search URL is returned.
+     * YouTube offline audio remains a separate, rights-confirmed action through the self-hosted API.
      */
-    fun addToPlaylist(playlistId: String, rawTitle: String, rawArtist: String, rawUrl: String): String? {
-        if (rejectMutationWhileSyncing()) return null
+    fun addToPlaylist(playlistId: String, rawTitle: String, rawArtist: String, rawUrl: String) {
+        if (rejectMutationWhileSyncing()) return
         val title = rawTitle.trim().take(120)
         val artist = rawArtist.trim().take(120)
         val link = rawUrl.trim().takeIf(String::isNotBlank)?.let(MusicLinkParser::fromText)
         val current = _state.value.playlists
         val playlist = current.firstOrNull { it.id == playlistId }
         when {
-            title.isEmpty() -> { notify("Add a song title first."); return null }
-            playlist == null -> { notify("That playlist no longer exists."); return null }
+            title.isEmpty() -> { notify("Add a song title first."); return }
+            playlist == null -> { notify("That playlist no longer exists."); return }
             rawUrl.trim().isNotBlank() && link == null -> {
-                notify("That link is not a supported song URL. Leave it empty to search YouTube Music.")
-                return null
+                notify("That link is not a supported song URL. Leave it empty or add a valid Spotify, SoundCloud, YouTube Music, or Jellyfin link.")
+                return
             }
         }
         val item = PlaylistItem(
@@ -798,8 +937,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         playlists.replaceAll(updated)
         _state.update { it.copy(playlists = updated) }
         recordCloudSyncChanges()
-        notify("Added \"$title\" to ${playlist.name}.")
-        return if (_state.value.autoSearchYoutube) YouTubeSearch.searchUrl(title, artist) else null
+        notify("Added \"$title\" to ${playlist.name}. It will play directly in Soundtrail.")
     }
 
     fun removePlaylistItem(playlistId: String, itemId: String) {

@@ -16,7 +16,15 @@ enum class MusicProvider(val label: String) {
 data class MusicLink(val provider: MusicProvider, val url: String)
 
 /** A search result from a connected provider, ready to be pinned. */
-data class TrackResult(val title: String, val artist: String, val url: String, val provider: MusicProvider)
+data class TrackResult(
+    val title: String,
+    val artist: String,
+    val url: String,
+    val provider: MusicProvider,
+    /** Optional direct playable URL (Spotify preview, SoundCloud stream, etc.). */
+    val playableUrl: String? = null,
+    val durationMs: Long? = null
+)
 
 object MusicLinkParser {
     private val spotifyId = Regex("[A-Za-z0-9]{22}")

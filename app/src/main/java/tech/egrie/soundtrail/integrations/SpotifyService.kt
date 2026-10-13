@@ -108,12 +108,42 @@ class SpotifyService(context: Context) {
             val artist = if (artists == null) "Unknown artist" else (0 until artists.length())
                 .mapNotNull { artists.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
                 .joinToString(", ").ifBlank { "Unknown artist" }
+            val preview = track.optString("preview_url").takeIf { it.isNotBlank() && it != "null" }
             TrackResult(
                 title = track.optString("name", "Untitled").take(120),
                 artist = artist,
                 url = "https://open.spotify.com/track/$id",
-                provider = MusicProvider.SPOTIFY
+                provider = MusicProvider.SPOTIFY,
+                playableUrl = preview,
+                durationMs = track.optLong("duration_ms", 0L).takeIf { it > 0 }
             )
+        }
+    }
+
+    /** Returns a direct playable preview URL for a Spotify track, if available. */
+    suspend fun resolvePlayableUrl(link: MusicLink): String? {
+        if (link.provider != MusicProvider.SPOTIFY) return null
+        val id = MusicLinkParser.parse(link.url)?.let { parsed ->
+            // Extract id from canonical URL https://open.spotify.com/track/<id>
+            runCatching { parsed.url.substringAfterLast('/').substringBefore('?') }.getOrNull()
+        } ?: return null
+        if (!idPatternForTrack.matches(id)) return null
+        return try {
+            val json = JSONObject(apiGet("tracks/$id"))
+            json.optString("preview_url").takeIf { it.isNotBlank() && it != "null" }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Direct fetch for pin playback when only URL is stored. */
+    suspend fun playableUrlForTrackId(trackId: String): String? {
+        if (!idPatternForTrack.matches(trackId)) return null
+        return try {
+            val json = JSONObject(apiGet("tracks/$trackId"))
+            json.optString("preview_url").takeIf { it.isNotBlank() && it != "null" }
+        } catch (_: Exception) {
+            null
         }
     }
 

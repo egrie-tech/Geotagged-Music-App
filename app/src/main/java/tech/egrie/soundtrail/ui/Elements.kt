@@ -163,7 +163,7 @@ internal fun PinCard(
                     style = MaterialTheme.typography.bodyMedium)
             }
             IconButton(onClick = onPlay, modifier = Modifier.size(42.dp).background(Palette.primary, CircleShape)) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = "Open ${pin.title} in ${pin.provider.label}",
+                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play ${pin.title} in Soundtrail",
                     tint = Palette.background)
             }
         }
@@ -221,8 +221,8 @@ internal fun formatDistance(meters: Double): String = if (meters < 1_000) {
 }
 
 /**
- * The bar above the tabs while a song streams from the user's Jellyfin server. The same
- * stream also lives behind PlaybackService's notification, so controls here and in the
+ * The bar above the tabs while a song plays directly in Soundtrail. The same
+ * playback also lives behind PlaybackService's notification, so controls here and in the
  * notification shade always act on one player.
  */
 @Composable
@@ -232,22 +232,28 @@ internal fun NowPlayingBar(nowPlaying: NowPlaying, onToggle: () -> Unit, onStop:
     } else {
         0f
     }
+    val providerColor = when (nowPlaying.provider) {
+        tech.egrie.soundtrail.integrations.MusicProvider.SPOTIFY -> Palette.spotify
+        tech.egrie.soundtrail.integrations.MusicProvider.SOUNDCLOUD -> Palette.soundcloud
+        tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE_MUSIC -> Palette.youtube
+        tech.egrie.soundtrail.integrations.MusicProvider.JELLYFIN -> Palette.jellyfin
+    }
     Column(
         Modifier.fillMaxWidth().background(Palette.surface)
             .border(1.dp, Palette.border.copy(alpha = .7f))
     ) {
         Box(Modifier.fillMaxWidth().height(3.dp).background(Palette.elevated)) {
-            Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(Palette.jellyfin))
+            Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(providerColor))
         }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier.size(38.dp).background(Palette.jellyfin.copy(alpha = .18f), CircleShape),
+                Modifier.size(38.dp).background(providerColor.copy(alpha = .18f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.MusicNote, null, tint = Palette.jellyfin,
+                Icon(Icons.Rounded.MusicNote, null, tint = providerColor,
                     modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.width(10.dp))
@@ -275,7 +281,7 @@ internal fun NowPlayingBar(nowPlaying: NowPlaying, onToggle: () -> Unit, onStop:
                 }
             }
             IconButton(onClick = onStop, Modifier.size(40.dp)) {
-                Icon(Icons.Rounded.Close, "Stop streaming", tint = Palette.muted)
+                Icon(Icons.Rounded.Close, "Stop playback", tint = Palette.muted)
             }
         }
     }
