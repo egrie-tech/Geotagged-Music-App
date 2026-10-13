@@ -102,14 +102,13 @@ class PlaylistStore(context: Context) {
     fun find(id: String): Playlist? = all().firstOrNull { it.id == id }
 
     fun save(playlist: Playlist) {
-        val lists = all().filterNot { it.id == playlist.id } + playlist
-        write(lists.sortedBy { it.createdAt })
+        replaceAll(all().filterNot { it.id == playlist.id } + playlist)
     }
 
-    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
     fun replaceAll(playlists: List<Playlist>) = write(playlists.sortedBy { it.createdAt })
 
-    fun remove(id: String) = write(all().filterNot { it.id == id })
+    fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
     /**
      * Restores playlists from a backup. Unknown playlists arrive whole; known ones only
@@ -124,23 +123,39 @@ class PlaylistStore(context: Context) {
     }
 
     fun addItem(playlistId: String, item: PlaylistItem): Boolean {
-        val playlist = find(playlistId) ?: return false
-        save(playlist.copy(items = playlist.items + item))
+        val current = all()
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index < 0) return false
+        replaceAll(current.mapIndexed { currentIndex, playlist ->
+            if (currentIndex == index) playlist.copy(items = playlist.items + item) else playlist
+        })
         return true
     }
 
     fun removeItem(playlistId: String, itemId: String): Boolean {
-        val playlist = find(playlistId) ?: return false
-        save(playlist.copy(items = playlist.items.filterNot { it.id == itemId }))
+        val current = all()
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index < 0) return false
+        if (current[index].items.none { it.id == itemId }) return true
+        replaceAll(current.mapIndexed { currentIndex, playlist ->
+            if (currentIndex == index) {
+                playlist.copy(items = playlist.items.filterNot { it.id == itemId })
+            } else playlist
+        })
         return true
     }
 
     fun replaceItem(playlistId: String, itemId: String, replacement: PlaylistItem): Boolean {
-        val playlist = find(playlistId) ?: return false
-        if (playlist.items.none { it.id == itemId }) return false
-        save(playlist.copy(items = playlist.items.map {
-            if (it.id == itemId) replacement else it
-        }))
+        val current = all()
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index < 0 || current[index].items.none { it.id == itemId }) return false
+        replaceAll(current.mapIndexed { currentIndex, playlist ->
+            if (currentIndex == index) {
+                playlist.copy(items = playlist.items.map {
+                    if (it.id == itemId) replacement else it
+                })
+            } else playlist
+        })
         return true
     }
 

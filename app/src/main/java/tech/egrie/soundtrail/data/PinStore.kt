@@ -33,15 +33,15 @@ class PinStore(context: Context) {
         }.sortedByDescending { it.createdAt }
     }
 
-    fun add(pin: MusicPin) = save(all() + pin)
+    fun add(pin: MusicPin) = replaceAll(all() + pin)
 
     /** Replace/insert one pin by stable id (used when applying a remote sync winner). */
-    fun upsert(pin: MusicPin) = save(all().filterNot { it.id == pin.id } + pin)
+    fun upsert(pin: MusicPin) = replaceAll(all().filterNot { it.id == pin.id } + pin)
 
-    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
     fun replaceAll(pins: List<MusicPin>) = save(pins)
 
-    fun remove(id: String) = save(all().filterNot { it.id == id })
+    fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
     /**
      * Restores pins from a backup: ids already on this device are kept as they are, so
@@ -57,7 +57,7 @@ class PinStore(context: Context) {
 
     private fun save(pins: List<MusicPin>) {
         val array = JSONArray()
-        pins.forEach { pin ->
+        pins.sortedByDescending { it.createdAt }.forEach { pin ->
             array.put(JSONObject().apply {
                 put("id", pin.id)
                 put("title", pin.title)

@@ -129,14 +129,13 @@ class AutomationStore(context: Context) {
     }
 
     fun save(rule: AutomationRule) {
-        val rules = all().filterNot { it.id == rule.id } + rule
-        write(rules)
+        replaceAll(all().filterNot { it.id == rule.id } + rule)
     }
 
-    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
     fun replaceAll(rules: List<AutomationRule>) = write(rules)
 
-    fun remove(id: String) = write(all().filterNot { it.id == id })
+    fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
     /**
      * Restores rules from a backup; ids already saved are kept as they are, so importing

@@ -86,7 +86,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsState()
-            val nowPlaying by model.player.state.collectAsState()
             val permissionRequest = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
             ) { grants ->
@@ -146,7 +145,7 @@ class MainActivity : ComponentActivity() {
                     incomingDraft = incomingDraft,
                     onIncomingConsumed = { incomingDraft = null },
                     openListsSignal = listsOpenSignal,
-                    nowPlaying = nowPlaying,
+                    nowPlaying = model.player.state,
                     lists = ListsActions(
                         onToggleWatch = toggleWatch,
                         onToggleAutoSearch = model::setAutoSearchYoutube,

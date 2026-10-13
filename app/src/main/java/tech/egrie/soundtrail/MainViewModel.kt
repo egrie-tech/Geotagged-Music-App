@@ -526,18 +526,19 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     fun createPlaylist(rawName: String) {
         if (rejectMutationWhileSyncing()) return
         val name = rawName.trim().take(80)
+        val current = _state.value.playlists
         when {
             name.isEmpty() -> notify("Give the playlist a name first.")
-            playlists.all().any { it.name.equals(name, ignoreCase = true) } ->
+            current.any { it.name.equals(name, ignoreCase = true) } ->
                 notify("A playlist called \"$name\" already exists.")
             else -> {
-                playlists.save(
-                    tech.egrie.soundtrail.data.Playlist(
-                        id = UUID.randomUUID().toString(), name = name,
-                        items = emptyList(), createdAt = System.currentTimeMillis()
-                    )
+                val playlist = Playlist(
+                    id = UUID.randomUUID().toString(), name = name,
+                    items = emptyList(), createdAt = System.currentTimeMillis()
                 )
-                _state.update { it.copy(playlists = playlists.all()) }
+                val updated = (current + playlist).sortedBy { it.createdAt }
+                playlists.replaceAll(updated)
+                _state.update { it.copy(playlists = updated) }
                 recordCloudSyncChanges()
                 notify("Playlist \"$name\" created.")
             }
@@ -546,12 +547,18 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
 
     fun deletePlaylist(id: String) {
         if (rejectMutationWhileSyncing()) return
+        val currentPlaylists = _state.value.playlists
         // Imported audio belongs to the song; it leaves with the playlist.
-        playlists.find(id)?.items?.forEach { item -> item.localFile?.let(files::delete) }
-        playlists.remove(id)
+        currentPlaylists.firstOrNull { it.id == id }?.items
+            ?.forEach { item -> item.localFile?.let(files::delete) }
+        val updatedPlaylists = currentPlaylists.filterNot { it.id == id }
+        playlists.replaceAll(updatedPlaylists)
+
         // Rules pointing at a deleted playlist would never fire again.
-        automations.all().filter { it.playlistId == id }.forEach { automations.remove(it.id) }
-        _state.update { it.copy(automations = automations.all()) }
+        val currentRules = _state.value.automations
+        val updatedRules = currentRules.filterNot { it.playlistId == id }
+        automations.replaceAll(updatedRules)
+        _state.update { it.copy(playlists = updatedPlaylists, automations = updatedRules) }
         refreshOfflineAudioState()
         recordCloudSyncChanges()
         notify("Playlist removed.")
@@ -566,32 +573,44 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         val title = rawTitle.trim().take(120)
         val artist = rawArtist.trim().take(120)
         val link = rawUrl.trim().takeIf(String::isNotBlank)?.let(MusicLinkParser::fromText)
+        val current = _state.value.playlists
+        val playlist = current.firstOrNull { it.id == playlistId }
         when {
             title.isEmpty() -> { notify("Add a song title first."); return null }
-            playlists.find(playlistId) == null -> { notify("That playlist no longer exists."); return null }
+            playlist == null -> { notify("That playlist no longer exists."); return null }
             rawUrl.trim().isNotBlank() && link == null -> {
                 notify("That link is not a supported song URL. Leave it empty to search YouTube Music.")
                 return null
             }
         }
-        val added = playlists.addItem(
-            playlistId,
-            PlaylistItem(
-                id = UUID.randomUUID().toString(), title = title, artist = artist,
-                url = link?.url, provider = link?.provider, createdAt = System.currentTimeMillis()
-            )
+        val item = PlaylistItem(
+            id = UUID.randomUUID().toString(), title = title, artist = artist,
+            url = link?.url, provider = link?.provider, createdAt = System.currentTimeMillis()
         )
-        if (!added) return null
-        _state.update { it.copy(playlists = playlists.all()) }
+        val updated = current.map {
+            if (it.id == playlistId) it.copy(items = it.items + item) else it
+        }
+        playlists.replaceAll(updated)
+        _state.update { it.copy(playlists = updated) }
         recordCloudSyncChanges()
-        notify("Added \"$title\" to ${playlists.find(playlistId)?.name.orEmpty()}.")
+        notify("Added \"$title\" to ${playlist.name}.")
         return if (_state.value.autoSearchYoutube) YouTubeSearch.searchUrl(title, artist) else null
     }
 
     fun removePlaylistItem(playlistId: String, itemId: String) {
         if (rejectMutationWhileSyncing()) return
-        playlists.find(playlistId)?.items?.firstOrNull { it.id == itemId }?.localFile?.let(files::delete)
-        playlists.removeItem(playlistId, itemId)
+        val current = _state.value.playlists
+        val playlist = current.firstOrNull { it.id == playlistId }
+        playlist?.items?.firstOrNull { it.id == itemId }?.localFile?.let(files::delete)
+        if (playlist != null) {
+            val updated = current.map {
+                if (it.id == playlistId) {
+                    it.copy(items = it.items.filterNot { item -> item.id == itemId })
+                } else it
+            }
+            playlists.replaceAll(updated)
+            _state.update { it.copy(playlists = updated) }
+        }
         refreshOfflineAudioState()
         recordCloudSyncChanges()
         notify("Song removed.")
@@ -743,6 +762,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             } finally {
                 _state.update { it.copy(offlineAudioBusy = false) }
             }
+
         }
     }
 
@@ -850,7 +870,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         val name = rule.name.trim()
         when {
             name.isEmpty() -> { notify("Name this automation first."); return false }
-            playlists.find(rule.playlistId) == null -> { notify("Pick a playlist that still exists."); return false }
+            _state.value.playlists.none { it.id == rule.playlistId } -> {
+                notify("Pick a playlist that still exists."); return false
+            }
             !rule.hasCondition -> { notify("Set a place, a motion, or a time window."); return false }
             rule.place != null && (rule.radiusMeters < 20.0 || rule.radiusMeters > 2000.0) -> {
                 notify("Trigger radius must be 20–2000 meters."); return false
@@ -859,8 +881,10 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 notify("Fill both time fields, or leave both empty."); return false
             }
         }
-        automations.save(rule.copy(name = name.take(80)))
-        _state.update { it.copy(automations = automations.all()) }
+        val saved = rule.copy(name = name.take(80))
+        val updated = _state.value.automations.filterNot { it.id == saved.id } + saved
+        automations.replaceAll(updated)
+        _state.update { it.copy(automations = updated) }
         recordCloudSyncChanges()
         notify("Automation \"${name.take(80)}\" saved${if (watchRunning) " — the watch will apply it now." else "."}")
         return true
@@ -868,8 +892,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
 
     fun deleteAutomation(id: String) {
         if (rejectMutationWhileSyncing()) return
-        automations.remove(id)
-        _state.update { it.copy(automations = automations.all()) }
+        val updated = _state.value.automations.filterNot { it.id == id }
+        automations.replaceAll(updated)
+        _state.update { it.copy(automations = updated) }
         recordCloudSyncChanges()
         notify("Automation removed.")
     }
@@ -1273,8 +1298,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             createdAt = System.currentTimeMillis()
         )
         return try {
-            pins.add(pin)
-            _state.update { it.copy(pins = pins.all()) }
+            val updated = (_state.value.pins + pin).sortedByDescending { it.createdAt }
+            pins.replaceAll(updated)
+            _state.update { it.copy(pins = updated) }
             recordCloudSyncChanges()
             notify("Pinned ${pin.title} to ${pin.place}.")
             true
@@ -1287,8 +1313,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     fun deletePin(id: String) {
         if (rejectMutationWhileSyncing()) return
         try {
-            pins.remove(id)
-            _state.update { it.copy(pins = pins.all()) }
+            val updated = _state.value.pins.filterNot { it.id == id }
+            pins.replaceAll(updated)
+            _state.update { it.copy(pins = updated) }
             recordCloudSyncChanges()
             notify("Pin removed.")
         } catch (_: Exception) {
