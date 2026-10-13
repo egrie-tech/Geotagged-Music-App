@@ -52,12 +52,12 @@ import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.playback.NowPlaying
 import java.util.Locale
 
-internal val cardShape = RoundedCornerShape(22.dp)
+internal val cardShape = RoundedCornerShape(18.dp)
 
 @Composable
 internal fun BrandHeader() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.size(31.dp)) {
+        Canvas(Modifier.size(28.dp)) {
             val center = Offset(size.width / 2, size.height / 2)
             drawCircle(Palette.primary, radius = size.width * .47f, center = center)
             drawCircle(Palette.background, radius = size.width * .29f, center = center)
@@ -72,9 +72,6 @@ internal fun BrandHeader() {
         Spacer(Modifier.width(9.dp))
         Text("soundtrail", style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold, letterSpacing = (-0.7f).sp)
-        Spacer(Modifier.weight(1f))
-        Text("MUSIC × PLACE", style = MaterialTheme.typography.labelMedium,
-            letterSpacing = 1.1f.sp, color = Palette.muted)
     }
 }
 
@@ -100,7 +97,7 @@ internal fun SectionHeading(title: String, action: String? = null, onAction: (()
 internal fun SurfaceCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier.clip(cardShape).background(Palette.surface)
-            .border(1.dp, Palette.border.copy(alpha = .7f), cardShape).padding(18.dp),
+            .border(1.dp, Palette.border.copy(alpha = .42f), cardShape).padding(16.dp),
         content = content
     )
 }

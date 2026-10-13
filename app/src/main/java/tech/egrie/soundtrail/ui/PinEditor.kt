@@ -59,25 +59,19 @@ internal fun PinEditor(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(15.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = Palette.text)
-            }
-            Spacer(Modifier.width(5.dp))
-            Text("NEW SOUNDSPOT", color = Palette.primary, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(8.dp))
+        IconButton(onClick = onBack) {
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = Palette.text)
         }
-        Spacer(Modifier.height(23.dp))
-        Eyebrow("A SONG + A PLACE")
-        Spacer(Modifier.height(8.dp))
-        Text("Make it a\nmoment.", style = MaterialTheme.typography.headlineLarge)
-        Spacer(Modifier.height(8.dp))
-        Text("Choose a track and leave it somewhere that matters.",
+        Spacer(Modifier.height(12.dp))
+        Text("New soundspot", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(4.dp))
+        Text("Add a song and a place you want to remember.",
             color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(23.dp))
+        Spacer(Modifier.height(16.dp))
 
         SurfaceCard(Modifier.fillMaxWidth()) {
-            Text("01  /  THE SOUND", style = MaterialTheme.typography.labelMedium, color = Palette.primary)
+            Text("Song", style = MaterialTheme.typography.titleMedium, color = Palette.primary)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 title, { title = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -105,7 +99,7 @@ internal fun PinEditor(
         }
         Spacer(Modifier.height(12.dp))
         SurfaceCard(Modifier.fillMaxWidth()) {
-            Text("02  /  THE PLACE", style = MaterialTheme.typography.labelMedium, color = Palette.primary)
+            Text("Place", style = MaterialTheme.typography.titleMedium, color = Palette.primary)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 place, { place = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,

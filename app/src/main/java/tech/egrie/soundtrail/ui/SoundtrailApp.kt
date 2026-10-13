@@ -188,7 +188,7 @@ internal fun SoundtrailApp(
             } else when (tab) {
                 Tab.HOME -> HomeScreen(
                     state, onNewPin = { draft = PinDraft() }, onLocate = onLocate,
-                    onSeePins = { tab = Tab.PINS }, onConnections = { tab = Tab.CONNECT },
+                    onSeePins = { tab = Tab.PINS },
                     onPlay = onPlay, onMap = onMap, onDelete = { pendingDelete = it }
                 )
                 Tab.SEARCH -> MusicSearchScreen(
@@ -260,7 +260,6 @@ private fun HomeScreen(
     onNewPin: () -> Unit,
     onLocate: () -> Unit,
     onSeePins: () -> Unit,
-    onConnections: () -> Unit,
     onPlay: (MusicPin) -> Unit,
     onMap: (GeoPoint) -> Unit,
     onDelete: (MusicPin) -> Unit
@@ -269,30 +268,34 @@ private fun HomeScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(22.dp))
-        BrandHeader()
-        Spacer(Modifier.height(27.dp))
-        HomeHero(onNewPin)
         Spacer(Modifier.height(18.dp))
+        BrandHeader()
+        Spacer(Modifier.height(20.dp))
+        HomeHero(onNewPin)
+        Spacer(Modifier.height(14.dp))
         LocationBanner(state.location, state.locating, onLocate)
-        Spacer(Modifier.height(27.dp))
-        SectionHeading(if (state.location != null) "Around you" else "Your soundspots", "View all", onSeePins)
+        Spacer(Modifier.height(20.dp))
+        SectionHeading(
+            title = if (state.location != null && state.pins.isNotEmpty()) "Around you" else "Your soundspots",
+            action = if (state.pins.isNotEmpty()) "View all" else null,
+            onAction = if (state.pins.isNotEmpty()) onSeePins else null
+        )
         Spacer(Modifier.height(10.dp))
         val nearby = state.location?.let { point ->
             state.pins.sortedBy { point.distanceTo(it.point) }
         } ?: state.pins
         if (nearby.isEmpty()) {
             SurfaceCard(Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.LocationOn, null, tint = Palette.primary,
-                    modifier = Modifier.size(29.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("No pins yet. Every place has a first song.",
-                    style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text("Find a track or share a song link, then save it to a place you love.",
-                    style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
-                Spacer(Modifier.height(14.dp))
-                PrimaryButton("Drop your first pin", onNewPin)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.LocationOn, null, tint = Palette.primary,
+                        modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("No soundspots yet", style = MaterialTheme.typography.titleMedium)
+                        Text("Add a song to start your collection.",
+                            style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
+                    }
+                }
             }
         } else {
             nearby.take(2).forEach { pin ->
@@ -301,26 +304,14 @@ private fun HomeScreen(
                 Spacer(Modifier.height(10.dp))
             }
         }
-        Spacer(Modifier.height(22.dp))
-        SurfaceCard(Modifier.fillMaxWidth()) {
-            Eyebrow("YOUR MUSIC, YOUR WAY", Palette.lilac)
-            Spacer(Modifier.height(9.dp))
-            Text("Four worlds. One map.", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(6.dp))
-            Text("Search Spotify, SoundCloud, Jellyfin, or YouTube Music in its app, pin a song " +
-                "to a place, or let a playlist greet you there.",
-                style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
-            Spacer(Modifier.height(6.dp))
-            TextButton(onClick = onConnections) { Text("Manage connections  →", color = Palette.primary) }
-        }
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(18.dp))
     }
 }
 
 @Composable
 private fun HomeHero(onNewPin: () -> Unit) {
     Box(
-        Modifier.fillMaxWidth().height(313.dp).clip(RoundedCornerShape(28.dp))
+        Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(24.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF344238), Color(0xFF242D29), Color(0xFF20252C))))
     ) {
         Canvas(Modifier.matchParentSize()) {
@@ -337,15 +328,15 @@ private fun HomeHero(onNewPin: () -> Unit) {
                 center = Offset(size.width * .95f, size.height * .78f))
         }
         Column(Modifier.fillMaxSize().padding(23.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Eyebrow("THE SOUNDTRACK TO EVERYWHERE")
+            Eyebrow("MUSIC, TIED TO PLACE")
             Column {
                 Text("Every place\nhas a song.", style = MaterialTheme.typography.displayLarge,
                     color = Palette.text)
-                Spacer(Modifier.height(10.dp))
-                Text("Leave music where life happens.\nCome back and press play.",
+                Spacer(Modifier.height(8.dp))
+                Text("Save a song to remember the moment.",
                     style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD2DCCE))
             }
-            PrimaryButton("Drop a pin  ↗", onNewPin)
+            PrimaryButton("Add a soundspot  ↗", onNewPin)
         }
     }
 }
@@ -386,17 +377,17 @@ private fun PinsScreen(
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
             BrandHeader()
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(20.dp))
             Eyebrow("YOUR COLLECTION")
-            Spacer(Modifier.height(8.dp))
-            Text("Places worth\nplaying back.", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(5.dp))
+            Text("Your soundspots", style = MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.height(4.dp))
             Text("${state.pins.size} saved ${if (state.pins.size == 1) "soundspot" else "soundspots"} · " +
                 if (state.location == null) "newest first" else "nearest first",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             PrimaryButton("+  Add a song pin", onNewPin, Modifier.fillMaxWidth())
             if (state.location == null && state.pins.isNotEmpty()) {
                 TextButton(onClick = onLocate) { Text("Locate me to sort by distance", color = Palette.primary) }
@@ -411,7 +402,7 @@ private fun PinsScreen(
                     Spacer(Modifier.height(10.dp))
                     Text("Your collection starts here", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(6.dp))
-                    Text("Save a Spotify, SoundCloud, or YouTube Music song at your current location — or enter a place yourself.",
+                    Text("Add a song, then choose your location or enter a place.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                 }
             }
