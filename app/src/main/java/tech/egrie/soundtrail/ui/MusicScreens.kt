@@ -420,10 +420,10 @@ internal fun ConnectionsScreen(
     onConnect: (String) -> Unit, onDisconnect: () -> Unit,
     onConnectSoundcloud: (String, String) -> Unit, onDisconnectSoundcloud: () -> Unit,
     onOpenSpotify: () -> Unit, onOpenYoutube: () -> Unit, onOpenSoundcloud: () -> Unit,
-    onOpenDashboard: () -> Unit, onOpenMicroG: () -> Unit, onOpenSoundcloudApps: () -> Unit,
+    onOpenDashboard: () -> Unit, onOpenMicroG: () -> Unit, onOpenMicroGRe: () -> Unit, onOpenSoundcloudApps: () -> Unit,
     onConnectJellyfin: (String, String, String) -> Unit, onDisconnectJellyfin: () -> Unit,
     onOpenJellyfin: () -> Unit,
-    onConnectYouTubeData: () -> Unit, onDisconnectYouTubeData: () -> Unit,
+    onConnectYouTubeData: () -> Unit, onConnectYouTubeOAuth: (String) -> Unit, onDisconnectYouTubeData: () -> Unit,
     onOpenYouTubeSetup: () -> Unit,
     backupBusy: Boolean, onExportBackup: () -> Unit, onImportBackup: () -> Unit,
     syncBusy: Boolean,
@@ -449,6 +449,7 @@ internal fun ConnectionsScreen(
     var jellyfinServer by rememberSaveable(state.jellyfinServer) { mutableStateOf(state.jellyfinServer) }
     var jellyfinUser by rememberSaveable(state.jellyfinName) { mutableStateOf(state.jellyfinName) }
     var jellyfinPassword by rememberSaveable { mutableStateOf("") }
+    var youtubeOAuthId by rememberSaveable(state.youtubeOAuthClientId) { mutableStateOf(state.youtubeOAuthClientId) }
     var expandedService by rememberSaveable { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
@@ -750,15 +751,55 @@ internal fun ConnectionsScreen(
                         Text("Disconnect and request revocation", color = Palette.coral)
                     }
                 } else {
-                    Text("Optional read-only playlist search. Connect uses the single Google (microG) account on " +
-                        "this device, or opens the Google sign-in screen if there is none or several. Device support " +
-                        "depends on Google services and OAuth setup; no private microG data is read.",
-                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                    val connectingAny = state.connectingYouTubeData || state.connectingYouTubeOAuth
+                    if (state.gmsSignInAvailable) {
+                        Text("Optional read-only playlist search. Connect uses the single Google (microG) account on " +
+                            "this device, or opens the Google sign-in screen if there is none or several. Device support " +
+                            "depends on Google services and OAuth setup; no private microG data is read.",
+                            color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(10.dp))
+                        PrimaryButton(
+                            if (state.connectingYouTubeData) "Connecting…" else "Connect Google account",
+                            onConnectYouTubeData, Modifier.fillMaxWidth(),
+                            enabled = !connectingAny
+                        )
+                        Spacer(Modifier.height(14.dp))
+                    }
+                    Text(
+                        "Or sign in with a Client ID — no Google services needed",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        when {
+                            state.microGReInstalled ->
+                                "MicroG RE is installed. It only provides Google sign-in to Morphe/ReVanced patched " +
+                                    "apps, so Soundtrail cannot use its accounts. Sign in below with your own Desktop " +
+                                    "OAuth Client ID instead: Google opens in your browser, and the tokens stay " +
+                                    "encrypted on this device."
+                            !state.gmsSignInAvailable ->
+                                "No Google Play services or standard microG was found, so the Google-account button " +
+                                    "is hidden. Use your own Desktop OAuth Client ID instead: Google opens in your " +
+                                    "browser, and the tokens stay encrypted on this device."
+                            else ->
+                                "Handy with MicroG RE or without a device Google account. Use your own Desktop OAuth " +
+                                    "Client ID: Google opens in your browser, and the tokens stay encrypted on this device."
+                        },
+                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = youtubeOAuthId, onValueChange = { youtubeOAuthId = it.trim().take(120) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Google Desktop Client ID") },
+                        placeholder = { Text("123…-abc….apps.googleusercontent.com") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
+                    )
                     Spacer(Modifier.height(10.dp))
                     PrimaryButton(
-                        if (state.connectingYouTubeData) "Connecting…" else "Connect Google account",
-                        onConnectYouTubeData, Modifier.fillMaxWidth(),
-                        enabled = !state.connectingYouTubeData
+                        if (state.connectingYouTubeOAuth) "Connecting…" else "Connect with Client ID",
+                        { onConnectYouTubeOAuth(youtubeOAuthId) }, Modifier.fillMaxWidth(),
+                        enabled = !connectingAny
                     )
                     TextButton(onClick = onOpenYouTubeSetup) {
                         Text("Configure Google Cloud / YouTube API  ↗", color = Palette.youtube)
@@ -772,6 +813,9 @@ internal fun ConnectionsScreen(
                 Spacer(Modifier.height(15.dp))
                 PrimaryButton("Open YouTube Music", onOpenYoutube, Modifier.fillMaxWidth())
                 TextButton(onClick = onOpenMicroG) { Text("Learn about microG  ↗", color = Palette.lilac) }
+                if (state.microGReInstalled || !state.gmsSignInAvailable) {
+                    TextButton(onClick = onOpenMicroGRe) { Text("MicroG RE (Morphe/ReVanced)  ↗", color = Palette.lilac) }
+                }
             }
         }
         Spacer(Modifier.height(13.dp))

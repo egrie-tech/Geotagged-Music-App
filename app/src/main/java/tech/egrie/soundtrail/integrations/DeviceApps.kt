@@ -27,11 +27,22 @@ class DeviceApps(private val context: Context) {
         "app.revanced.android.youtube.music"
     ).firstOrNull(::installed)
 
+    /**
+     * True Google Sign-In support: Google Play Services or standard microG under the system
+     * package name. MicroG RE does not serve unpatched third-party apps, so it is reported
+     * separately and the Connect tab offers the browser Client ID sign-in instead.
+     */
+    val systemGmsInstalled: Boolean get() = installed("com.google.android.gms")
+
+    /** MicroG RE / ReVanced GmsCore: authenticates Morphe/ReVanced patched apps only. */
+    val microGReInstalled: Boolean get() =
+        installed("app.revanced.android.gms") || installed("com.mgoogle.android.gms")
+
     /** A standard com.google.android.gms installation may be Google Play Services OR microG. */
     val servicesLabel: String get() = when {
-        installed("app.revanced.android.gms") -> "microG-compatible services detected"
-        installed("com.mgoogle.android.gms") -> "microG-compatible services detected"
-        installed("com.google.android.gms") -> "Google services available (may be microG)"
+        systemGmsInstalled && microGReInstalled -> "Google services + MicroG RE detected"
+        microGReInstalled -> "MicroG RE detected"
+        systemGmsInstalled -> "Google services available (may be microG)"
         else -> "No Google services detected"
     }
 
