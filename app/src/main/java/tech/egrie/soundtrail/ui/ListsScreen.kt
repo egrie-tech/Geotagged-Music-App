@@ -91,16 +91,16 @@ internal fun ListsScreen(state: AppState, actions: ListsActions, onNotice: (Stri
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
             BrandHeader()
-            Spacer(Modifier.height(28.dp))
-            Eyebrow("TRIGGERS & LISTS")
-            Spacer(Modifier.height(8.dp))
-            Text("Music that\nshows up first.", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(8.dp))
-            Text("Build playlists, then let places, motion, or the time of day call them up.",
-                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(20.dp))
+            Eyebrow("PLAYLISTS & AUTOMATIONS")
+            Spacer(Modifier.height(5.dp))
+            Text("Your music lists", style = MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.height(4.dp))
+            Text("Create playlists and set place or time triggers.",
+                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(16.dp))
             WatchCard(state, actions)
             Spacer(Modifier.height(6.dp))
         }
@@ -190,7 +190,7 @@ internal fun ListsScreen(state: AppState, actions: ListsActions, onNotice: (Stri
                 }
             }
             Spacer(Modifier.height(13.dp))
-            Text("Triggers re-arm after a 15-minute cooldown. Motion is inferred on-device from GPS speed; the watch runs as a visible notification and never sends your location anywhere. The Get button hands a song's link to apps you installed (such as a yt-dlp frontend) — Soundtrail downloads nothing itself.",
+            Text("Triggers cool down for 15 minutes. Location stays on device; “Get” hands links to your installed apps.",
                 color = Palette.muted, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(27.dp))
         }
@@ -229,19 +229,17 @@ private fun WatchCard(state: AppState, actions: ListsActions) {
             Switch(checked = state.watchStatus.running, onCheckedChange = actions.onToggleWatch)
         }
         Spacer(Modifier.height(8.dp))
-        Text("While watching, a persistent notification checks your place, movement, and the time, and raises your automations. Location stays on this device.",
+        Text("Uses a visible notification. Location stays on this device.",
             color = Palette.muted, style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Auto-search YouTube Music when adding songs", style = MaterialTheme.typography.titleMedium)
-                Text("Opens results in your YouTube Music app when available, or a browser.",
+                Text("Search YouTube Music when adding songs", style = MaterialTheme.typography.titleMedium)
+                Text("Opens the app or browser; playback stays there.",
                     color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
             }
             Switch(checked = state.autoSearchYoutube, onCheckedChange = actions.onToggleAutoSearch)
         }
-        Text("Soundtrail does not download or stream YouTube Music; playback stays in your music app.",
-            color = Palette.muted, style = MaterialTheme.typography.labelMedium)
     }
 }
 
