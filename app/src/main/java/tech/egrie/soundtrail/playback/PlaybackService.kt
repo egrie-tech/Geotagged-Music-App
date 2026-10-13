@@ -15,7 +15,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
+import android.graphics.drawable.Icon
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -188,7 +188,7 @@ class PlaybackService : Service() {
     private fun buildNotification(state: NowPlaying?): Notification {
         val playing = state?.playing == true
         val buffering = state?.buffering == true
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_soundtrail)
             .setContentTitle(state?.title ?: "Soundtrail")
             .setContentText(
@@ -201,22 +201,29 @@ class PlaybackService : Service() {
                 }
             )
             .setContentIntent(openAppIntent())
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             // Only a live stream pins itself; paused or finished rows can be swiped away.
             .setOngoing(playing || buffering)
         if (state != null) {
             val toggleLabel = if (playing) "Pause" else "Play"
+            val toggleIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
             builder.addAction(
-                NotificationCompat.Action(0, toggleLabel, serviceIntent(ACTION_TOGGLE, 10))
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, toggleIcon), toggleLabel,
+                    serviceIntent(ACTION_TOGGLE, 10)
+                ).build()
             )
             builder.addAction(
-                NotificationCompat.Action(0, "Stop", serviceIntent(ACTION_STOP, 11))
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "Stop",
+                    serviceIntent(ACTION_STOP, 11)
+                ).build()
             )
             session?.let { current ->
                 builder.setStyle(
-                    NotificationCompat.MediaStyle()
+                    Notification.MediaStyle()
                         .setMediaSession(current.sessionToken)
                         .setShowActionsInCompactView(0, 1)
                 )

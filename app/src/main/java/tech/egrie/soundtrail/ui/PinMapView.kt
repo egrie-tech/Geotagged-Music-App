@@ -197,7 +197,7 @@ internal fun PinMapView(
 
     Box(modifier) {
         Canvas(
-            Modifier.fillMaxSize().onSizeChanged { viewSize = it.size }
+            Modifier.fillMaxSize().onSizeChanged { viewSize = Size(it.width.toFloat(), it.height.toFloat()) }
                 .pointerInput(viewSize) {
                     detectTransformGestures { centroid, pan, zoomChange, _ ->
                         if (viewSize.width <= 0f) return@detectTransformGestures
@@ -212,7 +212,7 @@ internal fun PinMapView(
                             before.second + (centroid.y - height / 2.0),
                             currentZoom
                         )
-                        val newZoom = MapMath.clampZoom(currentZoom + log2(zoomChange.coerceAtLeast(0.05)))
+                        val newZoom = MapMath.clampZoom(currentZoom + log2(zoomChange.toDouble().coerceAtLeast(0.05)))
                         val anchorNow = MapMath.worldPixel(anchor.latitude, anchor.longitude, newZoom)
                         var newWorldX = anchorNow.first - centroid.x + width / 2.0
                         val newWorldY = anchorNow.second - centroid.y + height / 2.0
