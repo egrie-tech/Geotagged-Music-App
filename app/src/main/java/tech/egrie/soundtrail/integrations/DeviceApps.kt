@@ -81,10 +81,7 @@ class DeviceApps(private val context: Context) {
     fun openSpotify(): Boolean = launch("com.spotify.music".takeIf(::installed)) || view("https://open.spotify.com/")
     fun openSoundCloud(): Boolean = launch("com.soundcloud.android".takeIf(::installed)) || view("https://soundcloud.com/")
 
-    /**
-     * Hands a URL to whatever apps the user installed — for example a yt-dlp frontend
-     * or a terminal. Soundtrail performs no downloading itself and targets no app.
-     */
+    /** Hands a URL to an app the user chooses. This external share action performs no download. */
     fun shareUrl(url: String): Boolean {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"

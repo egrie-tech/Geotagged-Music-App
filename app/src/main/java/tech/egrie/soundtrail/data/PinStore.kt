@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 
-/** Private on-device collection; deliberately no account sync or background location tracking. */
+/** Private pin store; optional cloud sync exports only encrypted, user-authorized snapshots. */
 class PinStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_pins", Context.MODE_PRIVATE)
 
@@ -35,10 +35,27 @@ class PinStore(context: Context) {
 
     fun add(pin: MusicPin) = replaceAll(all() + pin)
 
+    /** Replace/insert one pin by stable id (used when applying a remote sync winner). */
+    fun upsert(pin: MusicPin) = replaceAll(all().filterNot { it.id == pin.id } + pin)
+
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
+    fun replaceAll(pins: List<MusicPin>) = save(pins)
+
     fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
-    /** Writes a caller's current snapshot without reparsing SharedPreferences. */
-    fun replaceAll(pins: List<MusicPin>) {
+    /**
+     * Restores pins from a backup: ids already on this device are kept as they are, so
+     * importing is additive and can never overwrite a local edit. Returns how many were added.
+     */
+    fun merge(incoming: List<MusicPin>): Int {
+        val have = all()
+        val ids = have.mapTo(HashSet()) { it.id }
+        val fresh = incoming.filterNot { it.id in ids }
+        if (fresh.isNotEmpty()) save(have + fresh)
+        return fresh.size
+    }
+
+    private fun save(pins: List<MusicPin>) {
         val array = JSONArray()
         pins.sortedByDescending { it.createdAt }.forEach { pin ->
             array.put(JSONObject().apply {

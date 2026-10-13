@@ -5,14 +5,63 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import java.io.File
+import java.util.UUID
 
 /**
- * Songs the user imported from their own device storage (for example audio they
- * produced or downloaded themselves with external tools). Files are copied into
- * private app storage and shared read-only through FileProvider when played.
+ * Audio attached from the user's device or downloaded through an authenticated Jellyfin
+ * account or a rights-attested YouTube audio request. Files are kept in private app storage
+ * and shared read-only through FileProvider when played.
  */
+internal data class StoredAudioFile(val name: String, val sizeBytes: Long)
+
 class FileStore(private val context: Context) {
     private val dir: File get() = File(context.filesDir, "audio").apply { mkdirs() }
+
+    /** Creates an unguessable staging file inside private audio storage. */
+    fun newDownloadTemp(): File = File(dir, ".audio-download-${UUID.randomUUID()}.part")
+
+    /** Promotes a completed offline-audio transfer to a private file and returns its name. */
+    fun finishDownload(temp: File, contentType: String?, sourceName: String?): String? = runCatching {
+        if (temp.canonicalFile.parentFile != dir.canonicalFile || !temp.isFile || temp.length() == 0L) return null
+        val extension = extensionForDownload(contentType, sourceName)
+        val name = "${System.nanoTime()}-${UUID.randomUUID()}$extension"
+        val target = File(dir, name)
+        try {
+            if (!temp.renameTo(target)) {
+                temp.inputStream().use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+                temp.delete()
+            }
+            if (!target.isFile || target.length() == 0L) {
+                target.delete()
+                null
+            } else name
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
+    }.getOrNull()
+
+    /** Removes an incomplete or cancelled transfer, but only when it belongs to our audio dir. */
+    fun discardDownloadTemp(temp: File) {
+        runCatching { if (temp.canonicalFile.parentFile == dir.canonicalFile) temp.delete() }
+    }
+
+    private fun extensionForDownload(contentType: String?, sourceName: String?): String {
+        val mimeExtension = when (contentType?.substringBefore(';')?.lowercase()) {
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/mp4", "audio/m4a" -> "m4a"
+            "audio/aac", "audio/aacp" -> "aac"
+            "audio/ogg", "audio/vorbis", "audio/opus" -> "ogg"
+            "audio/flac", "audio/x-flac" -> "flac"
+            "audio/wav", "audio/x-wav", "audio/wave" -> "wav"
+            "audio/aiff", "audio/x-aiff" -> "aiff"
+            "audio/x-ms-wma" -> "wma"
+            else -> null
+        }
+        val nameExtension = sourceName.orEmpty().substringAfterLast('.', "")
+            .lowercase().takeIf { it in setOf("mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "aiff", "aif", "wma", "mka", "webm") }
+        return ".${mimeExtension ?: nameExtension ?: "audio"}"
+    }
 
     /** Copies the picked audio into private storage and returns the stored file name. */
     fun importAudio(uri: Uri): String? {
@@ -34,8 +83,33 @@ class FileStore(private val context: Context) {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(dir, name))
 
     fun delete(name: String) {
-        runCatching { File(dir, name).delete() }
+        removeStoredFile(name)
     }
+
+    /** Deletes only a direct child of the private audio directory; missing files count as removed. */
+    fun removeStoredFile(name: String): Boolean = runCatching {
+        val root = dir.canonicalFile
+        val target = File(root, name).canonicalFile
+        if (target.parentFile != root) return@runCatching false
+        !target.exists() || target.delete()
+    }.getOrDefault(false)
+
+    /** True when a previously imported audio file is still present — a backup's file names mean nothing on another device. */
+    fun exists(name: String): Boolean = runCatching {
+        val root = dir.canonicalFile
+        File(root, name).canonicalFile.let { it.parentFile == root && it.isFile }
+    }.getOrDefault(false)
+
+    /** Physical local audio files, largest first; incomplete .part transfers are excluded. */
+    internal fun listStoredAudio(): List<StoredAudioFile> = runCatching {
+        dir.listFiles().orEmpty()
+            .filter { it.isFile && !it.name.endsWith(".part", ignoreCase = true) }
+            .map { StoredAudioFile(it.name, it.length()) }
+            .sortedByDescending { it.sizeBytes }
+    }.getOrDefault(emptyList())
+
+    /** Total private audio storage, excluding incomplete offline-transfer files. */
+    fun totalBytes(): Long = listStoredAudio().sumOf { it.sizeBytes }
 
     private fun extensionFor(uri: Uri): String {
         val type = runCatching { context.contentResolver.getType(uri) }.getOrNull()

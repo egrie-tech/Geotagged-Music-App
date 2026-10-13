@@ -152,6 +152,11 @@ internal object JellyfinApi {
         }.distinctBy(JellyfinTrack::id)
     }.getOrDefault(emptyList())
 
+    /** Official, authenticated file-download endpoint for an item the user can already read. */
+    fun downloadPath(rawItemId: String): String? = rawItemId.trim()
+        .takeIf(JellyfinRef::isItemId)
+        ?.let { "/Items/$it/Download" }
+
     /**
      * Direct play first — the server hands over the stored file untouched — then a transcode
      * fallback to a progressive MP3 stream for formats this device's decoder cannot open.

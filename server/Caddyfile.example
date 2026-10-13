@@ -1,0 +1,5 @@
+# Replace sync.example.net with a domain whose DNS points at this server.
+sync.example.net {
+    encode zstd gzip
+    reverse_proxy soundtrail-sync:8080
+}

@@ -3,6 +3,7 @@ package tech.egrie.soundtrail.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,7 +77,10 @@ internal data class PinDraft(
     val nonce: Long = System.nanoTime(),
     val title: String = "",
     val artist: String = "",
-    val url: String = ""
+    val url: String = "",
+    /** Set when the pin was started from a long-press on the map; prefills the editor. */
+    val lat: Double? = null,
+    val lon: Double? = null
 ) : Serializable {
     companion object { private const val serialVersionUID = 1L }
 }
@@ -120,6 +124,19 @@ internal fun SoundtrailApp(
     onConnectYouTubeData: () -> Unit,
     onDisconnectYouTubeData: () -> Unit,
     onOpenYouTubeSetup: () -> Unit,
+    backupBusy: Boolean,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    onCreateCloudSyncAccount: (server: String, email: String, password: String) -> Unit,
+    onSignInCloudSync: (server: String, email: String, password: String) -> Unit,
+    onUnlockCloudSync: (String) -> Unit,
+    onSyncCloudData: () -> Unit,
+    onShowCloudRecoveryKey: () -> Unit,
+    onForgetCloudRecoveryKey: () -> Unit,
+    onDismissCloudRecoveryKey: () -> Unit,
+    onSetCloudSyncAutoEnabled: (Boolean) -> Unit,
+    onDisconnectCloudSync: () -> Unit,
+    onDeleteCloudSyncAccount: () -> Unit,
     onTogglePlayback: () -> Unit,
     onStopPlayback: () -> Unit,
     onPlay: (MusicPin) -> Unit,
@@ -218,7 +235,10 @@ internal fun SoundtrailApp(
                 )
                 Tab.PINS -> PinsScreen(
                     state, onNewPin = { draft = PinDraft() }, onLocate = onLocate,
-                    onPlay = onPlay, onMap = onMap, onDelete = { pendingDelete = it }
+                    onPlay = onPlay, onMap = onMap, onDelete = { pendingDelete = it },
+                    onDropPin = { point ->
+                        draft = PinDraft(lat = point.latitude, lon = point.longitude)
+                    }
                 )
                 Tab.LISTS -> ListsScreen(state, lists, onNotice)
                 Tab.CONNECT -> ConnectionsScreen(
@@ -226,7 +246,12 @@ internal fun SoundtrailApp(
                     onOpenSpotify, onOpenYoutube, onOpenSoundcloud,
                     onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps,
                     onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin,
-                    onConnectYouTubeData, onDisconnectYouTubeData, onOpenYouTubeSetup
+                    onConnectYouTubeData, onDisconnectYouTubeData, onOpenYouTubeSetup,
+                    backupBusy, onExportBackup, onImportBackup,
+                    state.syncBusy, onCreateCloudSyncAccount, onSignInCloudSync,
+                    onUnlockCloudSync, onSyncCloudData, onShowCloudRecoveryKey,
+                    onForgetCloudRecoveryKey, onDismissCloudRecoveryKey, onSetCloudSyncAutoEnabled,
+                    onDisconnectCloudSync, onDeleteCloudSyncAccount
                 )
             }
         }
@@ -392,51 +417,91 @@ private fun LocationBanner(point: GeoPoint?, locating: Boolean, onLocate: () -> 
 @Composable
 private fun PinsScreen(
     state: AppState, onNewPin: () -> Unit, onLocate: () -> Unit,
-    onPlay: (MusicPin) -> Unit, onMap: (GeoPoint) -> Unit, onDelete: (MusicPin) -> Unit
+    onPlay: (MusicPin) -> Unit, onMap: (GeoPoint) -> Unit, onDelete: (MusicPin) -> Unit,
+    onDropPin: (GeoPoint) -> Unit
 ) {
-    val ordered = remember(state.pins, state.location) {
-        orderPins(state.pins, state.location)
-    }
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
-        item {
-            Spacer(Modifier.height(18.dp))
-            BrandHeader()
-            Spacer(Modifier.height(20.dp))
-            Eyebrow("YOUR COLLECTION")
-            Spacer(Modifier.height(5.dp))
-            Text("Your soundspots", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(4.dp))
-            Text("${state.pins.size} saved ${if (state.pins.size == 1) "soundspot" else "soundspots"} · " +
-                if (state.location == null) "newest first" else "nearest first",
-                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(14.dp))
-            PrimaryButton("+  Add a song pin", onNewPin, Modifier.fillMaxWidth())
-            if (state.location == null && state.pins.isNotEmpty()) {
-                TextButton(onClick = onLocate) { Text("Locate me to sort by distance", color = Palette.primary) }
-            }
-            Spacer(Modifier.height(12.dp))
+    var showingMap by rememberSaveable { mutableStateOf(false) }
+    val ordered = remember(state.pins, state.location) { orderPins(state.pins, state.location) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Spacer(Modifier.height(18.dp))
+        BrandHeader()
+        Spacer(Modifier.height(20.dp))
+        Eyebrow("YOUR COLLECTION")
+        Spacer(Modifier.height(5.dp))
+        Text("Your soundspots", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${state.pins.size} saved ${if (state.pins.size == 1) "soundspot" else "soundspots"} · " +
+                    if (state.location == null) "newest first" else "nearest first",
+                Modifier.weight(1f), color = Palette.secondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            ListMapToggle(showingMap) { showingMap = it }
         }
-        if (ordered.isEmpty()) {
-            item {
-                SurfaceCard(Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.Bookmark, null, tint = Palette.lilac,
-                        modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text("Your collection starts here", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Add a song, then choose your location or enter a place.",
-                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(14.dp))
+        PrimaryButton("+  Add a song pin", onNewPin, Modifier.fillMaxWidth())
+        if (state.location == null && state.pins.isNotEmpty() && !showingMap) {
+            TextButton(onClick = onLocate) { Text("Locate me to sort by distance", color = Palette.primary) }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (showingMap) {
+            PinMapView(
+                pins = state.pins,
+                userLocation = state.location,
+                onPlay = onPlay,
+                onMap = onMap,
+                onDelete = onDelete,
+                onDropPin = onDropPin,
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            )
+        } else {
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                if (ordered.isEmpty()) {
+                    item {
+                        SurfaceCard(Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Bookmark, null, tint = Palette.lilac,
+                                modifier = Modifier.size(32.dp))
+                            Spacer(Modifier.height(10.dp))
+                            Text("Your collection starts here", style = MaterialTheme.typography.titleLarge)
+                            Spacer(Modifier.height(6.dp))
+                            Text("Save a Spotify, SoundCloud, or YouTube Music song at your current location — or enter a place yourself.",
+                                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
+                items(ordered, key = { it.pin.id }) { nearbyPin ->
+                    val pin = nearbyPin.pin
+                    PinCard(pin, nearbyPin.distanceMeters,
+                        onPlay = { onPlay(pin) }, onMap = { onMap(pin.point) }, onDelete = { onDelete(pin) })
+                }
+                item { Spacer(Modifier.height(20.dp)) }
             }
         }
-        items(ordered, key = { it.pin.id }) { nearbyPin ->
-            val pin = nearbyPin.pin
-            PinCard(pin, nearbyPin.distanceMeters,
-                onPlay = { onPlay(pin) }, onMap = { onMap(pin.point) }, onDelete = { onDelete(pin) })
+    }
+}
+
+/** List or map — the map is where pins become a place instead of a feed. */
+@Composable
+private fun ListMapToggle(showMap: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(12.dp)).background(Palette.surface)
+            .border(1.dp, Palette.border, RoundedCornerShape(12.dp))
+    ) {
+        listOf(false to "List", true to "Map").forEach { (isMap, label) ->
+            val active = isMap == showMap
+            Box(
+                Modifier.background(if (active) Palette.primary else Color.Transparent)
+                    .clickable { onChange(isMap) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(label, color = if (active) Palette.background else Palette.secondary,
+                    style = MaterialTheme.typography.labelMedium)
+            }
         }
-        item { Spacer(Modifier.height(20.dp)) }
+
     }
 }

@@ -50,9 +50,10 @@ internal fun PinEditor(
     var url by rememberSaveable(draft.nonce) { mutableStateOf(draft.url) }
     var place by rememberSaveable(draft.nonce) { mutableStateOf("") }
     var note by rememberSaveable(draft.nonce) { mutableStateOf("") }
-    var manual by rememberSaveable(draft.nonce) { mutableStateOf(false) }
-    var latitude by rememberSaveable(draft.nonce) { mutableStateOf("") }
-    var longitude by rememberSaveable(draft.nonce) { mutableStateOf("") }
+    // A long-press on the map hands the editor its exact coordinates.
+    var manual by rememberSaveable(draft.nonce) { mutableStateOf(draft.lat != null && draft.lon != null) }
+    var latitude by rememberSaveable(draft.nonce) { mutableStateOf(draft.lat?.toString() ?: "") }
+    var longitude by rememberSaveable(draft.nonce) { mutableStateOf(draft.lon?.toString() ?: "") }
     val provider = MusicLinkParser.fromText(url)?.provider
 
     Column(

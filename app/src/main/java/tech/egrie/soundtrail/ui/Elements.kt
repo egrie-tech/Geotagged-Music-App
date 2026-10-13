@@ -221,8 +221,9 @@ internal fun formatDistance(meters: Double): String = if (meters < 1_000) {
 }
 
 /**
- * The bar above the tabs while a song streams from the user's Jellyfin server. Playback is
- * deliberately inside the app: no media session, no notification, no background service.
+ * The bar above the tabs while a song streams from the user's Jellyfin server. The same
+ * stream also lives behind PlaybackService's notification, so controls here and in the
+ * notification shade always act on one player.
  */
 @Composable
 internal fun NowPlayingBar(nowPlaying: NowPlaying, onToggle: () -> Unit, onStop: () -> Unit) {

@@ -28,7 +28,9 @@ internal data class NowPlaying(
     val buffering: Boolean,
     val positionMs: Long,
     val durationMs: Long,
-    val error: String? = null
+    val error: String? = null,
+    /** True once the item has played to its end; a play action rewinds instead of no-oping. */
+    val completed: Boolean = false
 )
 
 /**
@@ -36,11 +38,22 @@ internal data class NowPlaying(
  * playback does not belong in another app, because the library is the user's own hardware.
  *
  * Nothing is downloaded and nothing is cached: the server is asked for a stream for this item,
- * the access token travels in a request header (never in a URL, and never written to disk), and
- * playback ends when Soundtrail does. Soundtrail does not register a media session, so it stays
- * out of the system's playback controls and notification shade.
+ * and the access token travels in a request header (never in a URL, and never written to disk).
+ * [PlaybackService] registers a media session and a MediaStyle notification around this player
+ * so streaming — and its controls — continue when Soundtrail is not on screen. There is one
+ * process-wide instance ([shared]) because the service and the UI must drive the same stream.
  */
-internal class JellyfinPlayer(context: Context) {
+internal class JellyfinPlayer private constructor(context: Context) {
+    companion object {
+        @Volatile
+        private var instance: JellyfinPlayer? = null
+
+        /** The app's single player: the UI and [PlaybackService] must never own two streams. */
+        fun shared(context: Context): JellyfinPlayer = instance ?: synchronized(this) {
+            instance ?: JellyfinPlayer(context.applicationContext).also { instance = it }
+        }
+    }
+
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -67,6 +80,8 @@ internal class JellyfinPlayer(context: Context) {
             playing = false, buffering = true, positionMs = 0, durationMs = 0
         )
         openCurrentSource()
+        // Bring up the foreground notification/session so the stream outlives this screen.
+        PlaybackService.ensureStarted(appContext)
     }
 
     fun toggle() {
@@ -79,9 +94,11 @@ internal class JellyfinPlayer(context: Context) {
             _state.update { it?.copy(playing = false, positionMs = media.currentPosition.toLong()) }
         } else {
             requestFocus()
+            if (current.completed) media.seekTo(0)
             media.start()
-            _state.update { it?.copy(playing = true) }
+            _state.update { it?.copy(playing = true, completed = false) }
             startTicker()
+            PlaybackService.ensureStarted(appContext)
         }
     }
 
@@ -119,7 +136,11 @@ internal class JellyfinPlayer(context: Context) {
             media.setOnCompletionListener { finished ->
                 ticker?.cancel()
                 _state.update {
-                    it?.copy(playing = false, positionMs = finished.duration.coerceAtLeast(0).toLong())
+                    it?.copy(
+                        playing = false,
+                        positionMs = finished.duration.coerceAtLeast(0).toLong(),
+                        completed = true
+                    )
                 }
             }
             media.setOnErrorListener { _, _, _ ->

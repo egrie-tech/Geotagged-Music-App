@@ -104,6 +104,12 @@ object MusicLinkParser {
         }
     }
 
+    fun youtubeVideoId(input: String): String? {
+        val link = parse(input)?.takeIf { it.provider == MusicProvider.YOUTUBE_MUSIC } ?: return null
+        val query = runCatching { URI(link.url).rawQuery }.getOrNull()
+        return queryParameter(query, "v")?.takeIf(youtubeId::matches)
+    }
+
     private fun queryParameter(rawQuery: String?, name: String): String? = rawQuery
         ?.split('&')
         ?.firstNotNullOfOrNull { part ->

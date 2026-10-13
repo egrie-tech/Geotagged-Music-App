@@ -97,7 +97,7 @@ object AutomationEngine {
     }
 }
 
-/** Persists rules and last-fired timestamps in private storage; nothing leaves the device. */
+/** Persists rules and local last-fired timestamps; optional sync sends rules only as ciphertext. */
 class AutomationStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_automations", Context.MODE_PRIVATE)
 
@@ -132,10 +132,22 @@ class AutomationStore(context: Context) {
         replaceAll(all().filterNot { it.id == rule.id } + rule)
     }
 
-    /** Writes a caller's current snapshot without reparsing SharedPreferences. */
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
     fun replaceAll(rules: List<AutomationRule>) = write(rules)
 
     fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
+
+    /**
+     * Restores rules from a backup; ids already saved are kept as they are, so importing
+     * never rewrites a locally edited rule. Returns how many were added.
+     */
+    fun merge(incoming: List<AutomationRule>): Int {
+        val have = all()
+        val ids = have.mapTo(HashSet()) { it.id }
+        val fresh = incoming.filterNot { it.id in ids }
+        if (fresh.isNotEmpty()) write(have + fresh)
+        return fresh.size
+    }
 
     fun lastFiredAt(id: String): Long? = prefs.getLong("fired:$id", -1L).takeIf { it >= 0 }
 

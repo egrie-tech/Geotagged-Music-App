@@ -118,6 +118,12 @@ class JellyfinApiTest {
         assertFalse(escaped.contains("&limit=999&"))
     }
 
+    @Test fun `download path uses the authenticated item endpoint and rejects arbitrary ids`() {
+        assertEquals("/Items/$itemId/Download", JellyfinApi.downloadPath(itemId))
+        assertNull(JellyfinApi.downloadPath("../../private"))
+        assertNull(JellyfinApi.downloadPath("https://example.invalid/file.mp3"))
+    }
+
     @Test fun `stream urls direct play first and never carry the token`() {
         val urls = JellyfinApi.streamPaths("http://192.168.1.20:8096", itemId, "user-1", "device-1")
         assertEquals(2, urls.size)

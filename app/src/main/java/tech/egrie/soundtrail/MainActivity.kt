@@ -39,6 +39,9 @@ import tech.egrie.soundtrail.ui.Palette
 import tech.egrie.soundtrail.ui.PinDraft
 import tech.egrie.soundtrail.ui.SoundtrailApp
 import tech.egrie.soundtrail.ui.SoundtrailTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private lateinit var model: MainViewModel
@@ -128,6 +131,13 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ))
             }
+            // The backup file is chosen and written/read entirely through the system picker.
+            val exportBackupLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri -> if (uri != null) model.exportBackup(uri) }
+            val importBackupLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri -> if (uri != null) model.importBackup(uri) }
             SoundtrailTheme {
                 SoundtrailApp(
                     state = state,
@@ -155,8 +165,8 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onGetSong = { item ->
-                            // Hand the link to apps the user installed (e.g. a yt-dlp
-                            // frontend). Soundtrail performs no downloading itself.
+                            // This external action shares a link only; the separate YouTube offline
+                            // action uses the self-hosted audio endpoint after rights confirmation.
                             val link = item.url?.let(MusicLinkParser::parse)
                             val target = if (link != null && link.provider == MusicProvider.JELLYFIN) {
                                 model.jellyfinWebUrl(link) ?: link.url
@@ -165,6 +175,11 @@ class MainActivity : ComponentActivity() {
                             }
                             if (!apps.shareUrl(target)) model.notify("Nothing can receive this link.")
                         },
+                        onDownloadJellyfin = model::downloadJellyfinOffline,
+                        onDownloadYouTube = model::downloadYouTubeOffline,
+                        onRemoveOfflineAudio = model::removeOfflineAudio,
+                        onRemoveOfflineFile = model::removeStoredOfflineAudio,
+                        onClearAllOfflineAudio = model::clearAllOfflineAudio,
                         onImportAudio = { playlistId, item ->
                             importTarget = playlistId to item
                             try {
@@ -190,6 +205,34 @@ class MainActivity : ComponentActivity() {
                     onOpenJellyfin = { if (!apps.openWeb(model.jellyfinServerUrl())) model.notify("No browser found.") },
                     onConnectYouTubeData = ::connectYouTubeData,
                     onDisconnectYouTubeData = model::disconnectYouTubeData,
+                    backupBusy = state.backupBusy,
+                    onExportBackup = {
+                        val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                        try {
+                            exportBackupLauncher.launch("soundtrail-backup-$stamp.json")
+                        } catch (e: Exception) {
+                            model.notify("No file picker is available on this device.")
+                        }
+                    },
+                    onImportBackup = {
+                        try {
+                            importBackupLauncher.launch(
+                                arrayOf("application/json", "text/plain", "application/octet-stream")
+                            )
+                        } catch (e: Exception) {
+                            model.notify("No file picker is available on this device.")
+                        }
+                    },
+                    onCreateCloudSyncAccount = model::createCloudSyncAccount,
+                    onSignInCloudSync = model::signInCloudSync,
+                    onUnlockCloudSync = model::unlockCloudSync,
+                    onSyncCloudData = model::syncCloudData,
+                    onShowCloudRecoveryKey = model::showCloudRecoveryKey,
+                    onForgetCloudRecoveryKey = model::forgetCloudRecoveryKey,
+                    onDismissCloudRecoveryKey = model::dismissCloudRecoveryKey,
+                    onSetCloudSyncAutoEnabled = model::setCloudSyncAutoEnabled,
+                    onDisconnectCloudSync = model::disconnectCloudSync,
+                    onDeleteCloudSyncAccount = model::deleteCloudSyncAccount,
                     onOpenYouTubeSetup = {
                         if (!apps.openWeb("https://console.cloud.google.com/apis/credentials")) {
                             model.notify("No browser found.")
@@ -236,11 +279,9 @@ class MainActivity : ComponentActivity() {
         if (::model.isInitialized) model.refreshDeviceStatus()
     }
 
-    override fun onDestroy() {
-        // Playback belongs to this app: closing it stops the stream instead of leaving it behind.
-        if (isFinishing && ::model.isInitialized) model.stopPlayback()
-        super.onDestroy()
-    }
+    // Deliberately no stopPlayback() in onDestroy: Jellyfin streaming now continues in the
+    // background under PlaybackService's notification. The bar's Stop button, the
+    // notification's Stop action, or disconnecting the server ends it.
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

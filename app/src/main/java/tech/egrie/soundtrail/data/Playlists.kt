@@ -27,7 +27,43 @@ data class Playlist(
     val createdAt: Long
 )
 
-/** Private on-device song lists for automation triggers; deliberately no account sync. */
+/** Result of merging a backup's playlists into what a device already has. */
+internal data class PlaylistMerge(
+    val lists: List<Playlist>,
+    val addedPlaylists: Int,
+    val addedItems: Int
+)
+
+/**
+ * Pure restore rules for playlists: unknown playlists arrive whole, known ones only gain
+ * songs whose ids they do not already carry (so a re-import is a no-op), and nothing that
+ * exists locally is ever overwritten. Kept free of Android types so it is unit-testable.
+ */
+internal fun mergePlaylists(existing: List<Playlist>, incoming: List<Playlist>): PlaylistMerge {
+    var lists = existing
+    var addedPlaylists = 0
+    var addedItems = 0
+    incoming.forEach { brought ->
+        val known = lists.firstOrNull { it.id == brought.id }
+        if (known == null) {
+            lists = lists + brought
+            addedPlaylists += 1
+            addedItems += brought.items.size
+        } else {
+            val ids = known.items.mapTo(HashSet()) { it.id }
+            val fresh = brought.items.filterNot { it.id in ids }
+            if (fresh.isNotEmpty()) {
+                lists = lists.map {
+                    if (it.id == brought.id) it.copy(items = it.items + fresh) else it
+                }
+                addedItems += fresh.size
+            }
+        }
+    }
+    return PlaylistMerge(lists, addedPlaylists, addedItems)
+}
+
+/** Private playlist store; optional sync sends only encrypted metadata, never audio files. */
 class PlaylistStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_playlists", Context.MODE_PRIVATE)
 
@@ -69,12 +105,22 @@ class PlaylistStore(context: Context) {
         replaceAll(all().filterNot { it.id == playlist.id } + playlist)
     }
 
-    /** Writes a caller's current snapshot without reparsing SharedPreferences. */
-    fun replaceAll(playlists: List<Playlist>) {
-        write(playlists.sortedBy { it.createdAt })
-    }
+    /** Applies a complete caller snapshot without extra reads or sync-journal events. */
+    fun replaceAll(playlists: List<Playlist>) = write(playlists.sortedBy { it.createdAt })
 
     fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
+
+    /**
+     * Restores playlists from a backup. Unknown playlists arrive whole; known ones only
+     * gain the songs they do not have yet (matched by id), so a re-import changes nothing.
+     * Returns (playlists added, songs added).
+     */
+    fun merge(incoming: List<Playlist>): Pair<Int, Int> {
+        val before = all()
+        val merged = mergePlaylists(before, incoming)
+        if (merged.addedPlaylists > 0 || merged.addedItems > 0) write(merged.lists.sortedBy { it.createdAt })
+        return merged.addedPlaylists to merged.addedItems
+    }
 
     fun addItem(playlistId: String, item: PlaylistItem): Boolean {
         val current = all()

@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Dns
@@ -33,15 +34,18 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,6 +71,9 @@ import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.integrations.SOUNDCLOUD_REDIRECT_URI
 import tech.egrie.soundtrail.integrations.SPOTIFY_REDIRECT_URI
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 internal fun MusicSearchScreen(
@@ -417,8 +424,25 @@ internal fun ConnectionsScreen(
     onConnectJellyfin: (String, String, String) -> Unit, onDisconnectJellyfin: () -> Unit,
     onOpenJellyfin: () -> Unit,
     onConnectYouTubeData: () -> Unit, onDisconnectYouTubeData: () -> Unit,
-    onOpenYouTubeSetup: () -> Unit
+    onOpenYouTubeSetup: () -> Unit,
+    backupBusy: Boolean, onExportBackup: () -> Unit, onImportBackup: () -> Unit,
+    syncBusy: Boolean,
+    onCreateCloudSyncAccount: (String, String, String) -> Unit,
+    onSignInCloudSync: (String, String, String) -> Unit,
+    onUnlockCloudSync: (String) -> Unit,
+    onSyncCloudData: () -> Unit,
+    onShowCloudRecoveryKey: () -> Unit,
+    onForgetCloudRecoveryKey: () -> Unit,
+    onDismissCloudRecoveryKey: () -> Unit,
+    onSetCloudSyncAutoEnabled: (Boolean) -> Unit,
+    onDisconnectCloudSync: () -> Unit,
+    onDeleteCloudSyncAccount: () -> Unit
 ) {
+    var syncServer by rememberSaveable(state.syncServer) { mutableStateOf(state.syncServer) }
+    var syncEmail by rememberSaveable(state.syncEmail) { mutableStateOf(state.syncEmail) }
+    var syncPassword by remember { mutableStateOf("") }
+    var syncRecoveryInput by remember { mutableStateOf("") }
+    var confirmDeleteCloudAccount by remember { mutableStateOf(false) }
     var clientId by rememberSaveable(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
     var soundcloudId by rememberSaveable(state.soundcloudClientId) { mutableStateOf(state.soundcloudClientId) }
     var soundcloudSecret by rememberSaveable { mutableStateOf("") }
@@ -436,7 +460,7 @@ internal fun ConnectionsScreen(
         Spacer(Modifier.height(5.dp))
         Text("Connections", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(4.dp))
-        Text("Set up only the music services you use.",
+        Text("Set up only the music services you use. Pins and playlists stay local unless you enable optional, end-to-end encrypted sync to a server you control.",
             color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(16.dp))
 
@@ -626,8 +650,9 @@ internal fun ConnectionsScreen(
                     Text(state.jellyfinServer, color = Palette.secondary,
                         style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(8.dp))
-                    Text("Pins, playlists, and automations can use songs from this server. Soundtrail " +
-                        "streams them in the app and copies nothing.",
+                    Text("Search and stream this library, or download eligible tracks to this device " +
+                        "for offline playback. The server checks download permissions; Soundtrail never " +
+                        "changes your library, and audio files are not cloud-synced.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(13.dp))
                     PrimaryButton("Open Jellyfin  ↗", onOpenJellyfin, Modifier.fillMaxWidth())
@@ -635,8 +660,9 @@ internal fun ConnectionsScreen(
                         Text("Disconnect on this device", color = Palette.coral)
                     }
                 } else {
-                    Text("Point Soundtrail at the Jellyfin server you run yourself, to search that " +
-                        "library and stream it here. Access is read-only; nothing is uploaded.",
+                    Text("Point Soundtrail at the Jellyfin server you run yourself to search, stream, " +
+                        "and download eligible tracks for offline play. Jellyfin enforces your account's " +
+                        "permissions; Soundtrail never changes items in the library.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(13.dp))
                     OutlinedTextField(
@@ -750,14 +776,229 @@ internal fun ConnectionsScreen(
         Spacer(Modifier.height(13.dp))
         SurfaceCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(43.dp).background(Palette.lilac.copy(alpha = .17f), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Cloud, null, tint = Palette.lilac)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Self-hosted cloud sync", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        if (state.syncConnected) "Connected · ${state.syncEmail}" else "Your server, your encrypted data",
+                        color = if (state.syncConnected) Palette.primary else Palette.secondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                if (syncBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            Spacer(Modifier.height(13.dp))
+            Text(
+                "Sync pins, playlists, automations, edits, and deletions between devices. Library " +
+                    "data is encrypted on this device; your server stores ciphertext plus account " +
+                    "metadata. The recovery key is yours alone. A password reset cannot restore " +
+                    "synced data without that key.",
+                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(13.dp))
+            if (!state.syncConnected) {
+                OutlinedTextField(
+                    value = syncServer, onValueChange = { syncServer = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Self-hosted server URL (HTTPS)") },
+                    placeholder = { Text("https://sync.example.net") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = syncEmail, onValueChange = { syncEmail = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Account email") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next)
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = syncPassword, onValueChange = { syncPassword = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Account password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done)
+                )
+                Spacer(Modifier.height(6.dp))
+                Text("Use a unique password (10–128 characters). The server stores a salted scrypt hash, never your plaintext password.",
+                    color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(11.dp))
+                PrimaryButton(
+                    if (syncBusy) "Creating account…" else "Create account and recovery key",
+                    onClick = {
+                        onCreateCloudSyncAccount(syncServer, syncEmail, syncPassword)
+                        syncPassword = ""
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !syncBusy && syncServer.isNotBlank() && syncEmail.isNotBlank() && syncPassword.isNotBlank()
+                )
+                Spacer(Modifier.height(5.dp))
+                TextButton(
+                    onClick = {
+                        onSignInCloudSync(syncServer, syncEmail, syncPassword)
+                        syncPassword = ""
+                    }, enabled = !syncBusy && syncServer.isNotBlank() && syncEmail.isNotBlank() && syncPassword.isNotBlank()
+                ) { Text("Already have an account? Sign in", color = Palette.lilac) }
+            } else {
+                if (state.syncLastSyncAt > 0L) {
+                    Text("Last synced ${formatSyncTime(state.syncLastSyncAt)}",
+                        color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                }
+                val syncStatus = when {
+                    syncBusy -> if (state.syncPendingChanges > 0) "Syncing · ${state.syncPendingChanges} changes in the local queue" else "Syncing your library…"
+                    state.syncFailed -> if (state.syncPendingChanges > 0) "Sync failed · ${state.syncPendingChanges} local changes remain queued" else "Sync failed · retry to check the server"
+                    state.syncLastSyncAt == 0L -> "First sync will merge this device's library with the server."
+                    state.syncPendingChanges > 0 -> "${state.syncPendingChanges} ${if (state.syncPendingChanges == 1) "change" else "changes"} waiting to sync"
+                    else -> "All changes are synced on this device."
+                }
+                Text(syncStatus, color = if (state.syncFailed) Palette.coral else Palette.muted,
+                    style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(7.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Sync automatically when Soundtrail opens", style = MaterialTheme.typography.titleMedium)
+                        Text("It will not sync in the background while the app is closed.",
+                            color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+                    }
+                    Switch(checked = state.syncAutoEnabled, onCheckedChange = onSetCloudSyncAutoEnabled)
+                }
+                state.syncError?.let { error ->
+                    Spacer(Modifier.height(5.dp))
+                    Text(if (state.syncFailed) "Sync failed: $error" else "Sync notice: $error",
+                        color = if (state.syncFailed) Palette.coral else Palette.secondary,
+                        style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.height(8.dp))
+                if (state.syncHasRecoveryKey) {
+                    PrimaryButton(
+                        when {
+                            syncBusy -> "Syncing…"
+                            state.syncFailed -> "Retry sync"
+                            else -> "Sync now"
+                        },
+                        onSyncCloudData, Modifier.fillMaxWidth(), enabled = !syncBusy
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    TextButton(onClick = onShowCloudRecoveryKey, enabled = !syncBusy) {
+                        Text("Show saved recovery key", color = Palette.lilac)
+                    }
+                    TextButton(onClick = onForgetCloudRecoveryKey, enabled = !syncBusy) {
+                        Text("Use a different recovery key", color = Palette.secondary)
+                    }
+                } else {
+                    Text("Enter the recovery key created with this account. It is never uploaded.",
+                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = syncRecoveryInput, onValueChange = { syncRecoveryInput = it.trim() },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Recovery key") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    PrimaryButton(
+                        "Unlock and sync",
+                        onClick = { onUnlockCloudSync(syncRecoveryInput); syncRecoveryInput = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !syncBusy && syncRecoveryInput.isNotBlank()
+                    )
+                }
+                state.syncRecoveryKey?.let { key ->
+                    Spacer(Modifier.height(9.dp))
+                    Text("Save this 256-bit recovery key somewhere private. Anyone with it and your account can decrypt your synced library; Soundtrail cannot recover it.",
+                        color = Palette.coral, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(6.dp))
+                    SelectionContainer {
+                        Text(key, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            color = Palette.primary, fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.titleMedium)
+                    }
+                    TextButton(onClick = onDismissCloudRecoveryKey) {
+                        Text("Hide recovery key", color = Palette.secondary)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onDisconnectCloudSync, enabled = !syncBusy) {
+                    Text("Sign out on this device", color = Palette.coral)
+                }
+                TextButton(onClick = { confirmDeleteCloudAccount = true }, enabled = !syncBusy) {
+                    Text("Delete account and remote sync data…", color = Palette.coral)
+                }
+            }
+        }
+        if (confirmDeleteCloudAccount) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteCloudAccount = false },
+                title = { Text("Delete sync account?") },
+                text = { Text("This permanently deletes the account and encrypted sync history from your server. It does not delete this device's pins, playlists, automations, or audio files.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDeleteCloudAccount = false
+                        onDeleteCloudSyncAccount()
+                    }, enabled = !syncBusy) {
+                        Text("Delete remote account", color = Palette.coral)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteCloudAccount = false }) { Text("Cancel") }
+                },
+                containerColor = Palette.elevated
+            )
+        }
+        Spacer(Modifier.height(13.dp))
+        SurfaceCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(43.dp).background(Palette.primary.copy(alpha = .15f), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Backup, null, tint = Palette.primary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Backup & restore", style = MaterialTheme.typography.titleLarge)
+                    Text(if (backupBusy) "Working…" else "Everything local, in one file",
+                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (backupBusy) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+            Spacer(Modifier.height(13.dp))
+            Text("Write every pin, playlist, and automation to a JSON file you own — or read " +
+                "one back on this or another device. The file goes only where you send it; " +
+                "Soundtrail uploads nothing.",
+                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(13.dp))
+            PrimaryButton(if (backupBusy) "Working…" else "Export backup",
+                onExportBackup, Modifier.fillMaxWidth(), enabled = !backupBusy)
+            Spacer(Modifier.height(10.dp))
+            PrimaryButton("Import backup",
+                onImportBackup, Modifier.fillMaxWidth(), enabled = !backupBusy)
+            Spacer(Modifier.height(9.dp))
+            Text("A backup carries pins, playlists with their song links, and automations. " +
+                "Account logins and imported audio files stay on this device — reconnect " +
+                "accounts and re-attach audio after a restore. Importing keeps everything " +
+                "already here and only adds what the file has.",
+                color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.height(13.dp))
+        SurfaceCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Lock, null, tint = Palette.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(9.dp))
                 Text("Private by design", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(7.dp))
-            Text("Location is used only when you ask. Pins stay on this device; Soundtrail has no backend or background tracking.",
+            Text("Location is requested only when you choose it. Saved pin locations enter sync only as end-to-end encrypted records when you enable self-hosted sync. Pins are rendered on-device; map requests use public tile coordinates. Official read-only YouTube API access is separate from rights-confirmed audio-only extraction; the extractor receives no OAuth token or app-session data. No background location tracking.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(27.dp))
     }
 }
+
+private fun formatSyncTime(timestamp: Long): String =
+    SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(timestamp))
