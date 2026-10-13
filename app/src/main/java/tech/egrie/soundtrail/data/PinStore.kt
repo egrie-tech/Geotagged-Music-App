@@ -33,13 +33,14 @@ class PinStore(context: Context) {
         }.sortedByDescending { it.createdAt }
     }
 
-    fun add(pin: MusicPin) = save(all() + pin)
+    fun add(pin: MusicPin) = replaceAll(all() + pin)
 
-    fun remove(id: String) = save(all().filterNot { it.id == id })
+    fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
-    private fun save(pins: List<MusicPin>) {
+    /** Writes a caller's current snapshot without reparsing SharedPreferences. */
+    fun replaceAll(pins: List<MusicPin>) {
         val array = JSONArray()
-        pins.forEach { pin ->
+        pins.sortedByDescending { it.createdAt }.forEach { pin ->
             array.put(JSONObject().apply {
                 put("id", pin.id)
                 put("title", pin.title)

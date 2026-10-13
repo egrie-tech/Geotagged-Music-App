@@ -129,11 +129,13 @@ class AutomationStore(context: Context) {
     }
 
     fun save(rule: AutomationRule) {
-        val rules = all().filterNot { it.id == rule.id } + rule
-        write(rules)
+        replaceAll(all().filterNot { it.id == rule.id } + rule)
     }
 
-    fun remove(id: String) = write(all().filterNot { it.id == id })
+    /** Writes a caller's current snapshot without reparsing SharedPreferences. */
+    fun replaceAll(rules: List<AutomationRule>) = write(rules)
+
+    fun remove(id: String) = replaceAll(all().filterNot { it.id == id })
 
     fun lastFiredAt(id: String): Long? = prefs.getLong("fired:$id", -1L).takeIf { it >= 0 }
 

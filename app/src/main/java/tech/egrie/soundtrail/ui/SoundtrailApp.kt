@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import tech.egrie.soundtrail.AppState
 import tech.egrie.soundtrail.PinInput
@@ -83,6 +85,18 @@ private enum class Tab(val label: String) {
     HOME("Explore"), SEARCH("Search"), PINS("Pins"), LISTS("Lists"), CONNECT("Connect")
 }
 
+private data class PinWithDistance(val pin: MusicPin, val distanceMeters: Double?)
+
+/** Calculate each distance once; screens remember the result until pins or location change. */
+private fun orderPins(pins: List<MusicPin>, location: GeoPoint?): List<PinWithDistance> {
+    val withDistance = pins.map { pin ->
+        PinWithDistance(pin, location?.distanceTo(pin.point))
+    }
+    return if (location == null) withDistance else {
+        withDistance.sortedBy { it.distanceMeters ?: Double.POSITIVE_INFINITY }
+    }
+}
+
 @Composable
 internal fun SoundtrailApp(
     state: AppState,
@@ -90,7 +104,7 @@ internal fun SoundtrailApp(
     incomingDraft: PinDraft?,
     onIncomingConsumed: () -> Unit,
     openListsSignal: Int,
-    nowPlaying: NowPlaying?,
+    nowPlaying: StateFlow<NowPlaying?>,
     lists: ListsActions,
     onLocate: () -> Unit,
     onSearch: (String) -> Unit,
@@ -165,9 +179,7 @@ internal fun SoundtrailApp(
         bottomBar = {
             Column {
                 // Streaming from the user's own Jellyfin server keeps its controls in the app.
-                nowPlaying?.let { current ->
-                    NowPlayingBar(current, onToggle = onTogglePlayback, onStop = onStopPlayback)
-                }
+                NowPlayingDock(nowPlaying, onTogglePlayback, onStopPlayback)
                 if (draft == null) BottomTabs(tab) { tab = it }
             }
         }
@@ -219,6 +231,17 @@ internal fun SoundtrailApp(
             }
         }
     }
+}
+
+/** Keep frequent player-progress updates scoped to this small bottom-bar subtree. */
+@Composable
+private fun NowPlayingDock(
+    state: StateFlow<NowPlaying?>,
+    onToggle: () -> Unit,
+    onStop: () -> Unit
+) {
+    val current by state.collectAsState()
+    current?.let { NowPlayingBar(it, onToggle = onToggle, onStop = onStop) }
 }
 
 @Composable
@@ -281,9 +304,9 @@ private fun HomeScreen(
             onAction = if (state.pins.isNotEmpty()) onSeePins else null
         )
         Spacer(Modifier.height(10.dp))
-        val nearby = state.location?.let { point ->
-            state.pins.sortedBy { point.distanceTo(it.point) }
-        } ?: state.pins
+        val nearby = remember(state.pins, state.location) {
+            orderPins(state.pins, state.location)
+        }
         if (nearby.isEmpty()) {
             SurfaceCard(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -298,8 +321,9 @@ private fun HomeScreen(
                 }
             }
         } else {
-            nearby.take(2).forEach { pin ->
-                PinCard(pin, state.location?.distanceTo(pin.point),
+            nearby.take(2).forEach { nearbyPin ->
+                val pin = nearbyPin.pin
+                PinCard(pin, nearbyPin.distanceMeters,
                     onPlay = { onPlay(pin) }, onMap = { onMap(pin.point) }, onDelete = { onDelete(pin) })
                 Spacer(Modifier.height(10.dp))
             }
@@ -370,8 +394,9 @@ private fun PinsScreen(
     state: AppState, onNewPin: () -> Unit, onLocate: () -> Unit,
     onPlay: (MusicPin) -> Unit, onMap: (GeoPoint) -> Unit, onDelete: (MusicPin) -> Unit
 ) {
-    val ordered = state.location?.let { point -> state.pins.sortedBy { point.distanceTo(it.point) } }
-        ?: state.pins
+    val ordered = remember(state.pins, state.location) {
+        orderPins(state.pins, state.location)
+    }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
@@ -407,8 +432,9 @@ private fun PinsScreen(
                 }
             }
         }
-        items(ordered, key = { it.id }) { pin ->
-            PinCard(pin, state.location?.distanceTo(pin.point),
+        items(ordered, key = { it.pin.id }) { nearbyPin ->
+            val pin = nearbyPin.pin
+            PinCard(pin, nearbyPin.distanceMeters,
                 onPlay = { onPlay(pin) }, onMap = { onMap(pin.point) }, onDelete = { onDelete(pin) })
         }
         item { Spacer(Modifier.height(20.dp)) }
