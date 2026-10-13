@@ -2,6 +2,7 @@ package tech.egrie.soundtrail.integrations
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class YouTubeApiParserTest {
@@ -55,5 +56,23 @@ class YouTubeApiParserTest {
         assertEquals(1, results.size)
         assertEquals("Valid title", results.single().title)
         assertTrue(results.single().url.endsWith("abcdefghijk"))
+    }
+
+    @Test fun `parses playlist items into importable entries skipping deleted private and bad ids`() {
+        val items = YouTubeApiParser.playlistItems(
+            """{"items":[
+                {"snippet":{"title":"One More Time","videoOwnerChannelTitle":"Daft Punk","playlistId":"PL_a"},"contentDetails":{"videoId":"dQw4w9WgXcQ"}},
+                {"snippet":{"title":"Around the World","channelTitle":"Daft Punk"},"contentDetails":{"videoId":"abcdefghijk"}},
+                {"snippet":{"title":"Deleted video"},"contentDetails":{"videoId":"ZYXWVUTSRQP"}},
+                {"snippet":{"title":"Private video"},"contentDetails":{"videoId":"ZZZZZZZZZZZ"}},
+                {"snippet":{"title":"Bad id"},"contentDetails":{"videoId":"short"}}
+            ]}"""
+        )
+        assertEquals(2, items.size)
+        assertEquals("One More Time", items[0].title)
+        assertEquals("Daft Punk", items[0].artist)
+        assertEquals("dQw4w9WgXcQ", items[0].videoId)
+        assertEquals("Around the World", items[1].title)
+        assertEquals("Daft Punk", items[1].artist)
     }
 }

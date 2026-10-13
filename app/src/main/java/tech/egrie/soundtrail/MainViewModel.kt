@@ -34,12 +34,14 @@ import tech.egrie.soundtrail.integrations.JellyfinRef
 import tech.egrie.soundtrail.integrations.JellyfinService
 import tech.egrie.soundtrail.integrations.MusicLink
 import tech.egrie.soundtrail.integrations.MusicLinkParser
+import tech.egrie.soundtrail.integrations.MusicProvider
 import tech.egrie.soundtrail.integrations.SongInfo
 import tech.egrie.soundtrail.integrations.SoundCloudService
 import tech.egrie.soundtrail.integrations.SpotifyService
 import tech.egrie.soundtrail.integrations.TrackResult
 import tech.egrie.soundtrail.integrations.YouTubeConsentRequiredException
 import tech.egrie.soundtrail.integrations.YouTubeDataService
+import tech.egrie.soundtrail.integrations.YouTubeImportedPlaylist
 import tech.egrie.soundtrail.integrations.YouTubeSearch
 import tech.egrie.soundtrail.location.DeviceLocation
 import tech.egrie.soundtrail.playback.JellyfinPlayer
@@ -87,6 +89,8 @@ internal data class AppState(
     val autoSearchYoutube: Boolean = true,
     val backupBusy: Boolean = false,
     val syncServer: String = "",
+    val syncEffectiveServer: String = CloudSyncService.DEFAULT_SYNC_SERVER,
+    val syncUsingCustomServer: Boolean = false,
     val syncEmail: String = "",
     val syncConnected: Boolean = false,
     val syncHasRecoveryKey: Boolean = false,
@@ -99,6 +103,9 @@ internal data class AppState(
     val syncRecoveryKey: String? = null,
     val jellyfinDownloads: Map<String, JellyfinDownloadProgress> = emptyMap(),
     val youtubeDownloads: Map<String, YouTubeDownloadProgress> = emptyMap(),
+    val youtubeImporting: Boolean = false,
+    val youtubeAutoImportEnabled: Boolean = true,
+    val youtubeLastImportedAt: Long = 0L,
     val offlineAudioFiles: List<OfflineAudioItem> = emptyList(),
     val offlineAudioBusy: Boolean = false,
     val audioStorageBytes: Long = 0L,
@@ -148,6 +155,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
     private val cloudSync = CloudSyncService(application, pins, playlists, automations, files)
+    private val youtubePrefs = application.getSharedPreferences("soundtrail_youtube", android.content.Context.MODE_PRIVATE)
 
     /**
      * The app's one player, shared with [tech.egrie.soundtrail.playback.PlaybackService] so
@@ -177,6 +185,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             gmsSignInAvailable = apps.systemGmsInstalled,
             microGReInstalled = apps.microGReInstalled,
             syncServer = cloudSync.serverUrl,
+            syncEffectiveServer = cloudSync.effectiveServerUrl,
+            syncUsingCustomServer = cloudSync.isUsingCustomServer,
             syncEmail = cloudSync.accountEmail,
             syncConnected = cloudSync.connected,
             syncHasRecoveryKey = cloudSync.hasRecoveryKey,
@@ -195,6 +205,12 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         if (soundcloud.connected) loadSoundcloudProfile()
         if (cloudSync.autoSyncEnabled && cloudSync.connected && cloudSync.hasRecoveryKey) {
             runCloudSync(showMessages = false)
+        }
+        // If the user left auto-import on and YouTube is already connected (after an upgrade or
+        // process restart), do a quiet background refresh. This is a pull, not a mutation of any
+        // remote account: it just adds newly discovered videos to local playlists.
+        if (youtubeData.connected && youtubePrefs.getBoolean("auto_import", true)) {
+            viewModelScope.launch { runCatching { runYouTubeImport(showMessages = false) } }
         }
         viewModelScope.launch {
             LocationWatchService.status.collect { live -> _state.update { it.copy(watchStatus = live) } }
@@ -217,7 +233,12 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 jellyfinConnected = jellyfin.connected,
                 youtubeDataConnected = youtubeData.connected,
                 youtubeDataAccount = youtubeData.accountName,
+                youtubeOAuthClientId = youtubeData.oauthClientId,
+                youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
+                youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L),
                 syncServer = cloudSync.serverUrl,
+                syncEffectiveServer = cloudSync.effectiveServerUrl,
+                syncUsingCustomServer = cloudSync.isUsingCustomServer,
                 syncEmail = cloudSync.accountEmail,
                 syncConnected = cloudSync.connected,
                 syncHasRecoveryKey = cloudSync.hasRecoveryKey,
@@ -458,8 +479,16 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             try {
                 val accountName = connect()
-                _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = accountName) }
-                notify("YouTube read-only access connected. Search your playlists to find videos.")
+                _state.update {
+                    it.copy(
+                        youtubeDataConnected = true,
+                        youtubeDataAccount = accountName,
+                        youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
+                        youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L)
+                    )
+                }
+                notify("YouTube read-only access connected. Playlists will import automatically if that option is on.")
+                maybeAutoImportYouTube()
             } catch (e: YouTubeConsentRequiredException) {
                 _state.update { it.copy(youtubeDataConnected = false, youtubeDataAccount = null) }
                 if (onConsentNeeded != null) {
@@ -498,13 +527,23 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             try {
                 val label = youtubeData.finishOAuthSignIn(uri)
-                _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = label) }
-                notify("YouTube read-only access connected. Search your playlists to find videos.")
+                _state.update {
+                    it.copy(
+                        youtubeDataConnected = true,
+                        youtubeDataAccount = label,
+                        youtubeOAuthClientId = youtubeData.oauthClientId,
+                        youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
+                        youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L)
+                    )
+                }
+                notify("YouTube read-only access connected. Playlists will import automatically if that option is on.")
+                maybeAutoImportYouTube()
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
                         youtubeDataConnected = youtubeData.connected,
-                        youtubeDataAccount = youtubeData.accountName
+                        youtubeDataAccount = youtubeData.accountName,
+                        youtubeOAuthClientId = youtubeData.oauthClientId
                     )
                 }
                 notify(e.message ?: "Could not connect your YouTube account.")
@@ -529,6 +568,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             it.copy(
                 youtubeDataConnected = false,
                 youtubeDataAccount = null,
+                youtubeImporting = false,
                 results = if (it.searchProvider == SearchProvider.YOUTUBE_DATA) emptyList() else it.results,
                 searchError = null
             )
@@ -537,6 +577,84 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         if (previousOAuth != null) {
             viewModelScope.launch { youtubeData.revokeOAuthToken(previousOAuth) }
         }
+    }
+
+    fun setYouTubeAutoImport(enabled: Boolean) {
+        youtubePrefs.edit().putBoolean("auto_import", enabled).apply()
+        _state.update { it.copy(youtubeAutoImportEnabled = enabled) }
+    }
+
+    /**
+     * Pulls playlists and their videos from the connected YouTube account and merges them into
+     * Soundtrail playlists. Deterministic ids (yt-pl:<playlistId> and yt:<playlistId>:<videoId>)
+     * keep re-imports idempotent: previously imported playlists keep existing items (including
+     * offline files) and only newly discovered videos are appended. YouTube Music library-only
+     * collections (saved songs/albums/mixes) are not reachable via the public Data API and are
+     * therefore not imported; the notice text makes that clear.
+     */
+    fun importYouTubePlaylists() = runYouTubeImport(showMessages = true)
+
+    private fun runYouTubeImport(showMessages: Boolean) {
+        if (_state.value.youtubeImporting) return
+        if (!youtubeData.connected) {
+            if (showMessages) notify("Connect your Google account before importing YouTube playlists.")
+            return
+        }
+        _state.update { it.copy(youtubeImporting = true) }
+        viewModelScope.launch {
+            try {
+                val imported: List<YouTubeImportedPlaylist> = withContext(Dispatchers.IO) { youtubeData.importPlaylists() }
+                val now = System.currentTimeMillis()
+                val incoming = imported.map { yt ->
+                    Playlist(
+                        id = "yt-pl:${yt.playlistId}",
+                        name = yt.title,
+                        items = yt.items.map { video ->
+                            PlaylistItem(
+                                id = "yt:${yt.playlistId}:${video.videoId}",
+                                title = video.title,
+                                artist = video.artist,
+                                url = "https://music.youtube.com/watch?v=${video.videoId}",
+                                provider = MusicProvider.YOUTUBE_MUSIC,
+                                createdAt = now
+                            )
+                        },
+                        createdAt = now
+                    )
+                }
+                val (addedLists, addedItems) = withContext(Dispatchers.IO) { playlists.merge(incoming) }
+                youtubePrefs.edit().putLong("last_imported_at", now).apply()
+                refreshOfflineAudioState()
+                recordCloudSyncChanges()
+                _state.update {
+                    it.copy(
+                        playlists = playlists.all(),
+                        youtubeLastImportedAt = now,
+                        youtubeImporting = false
+                    )
+                }
+                if (showMessages) {
+                    val note = buildString {
+                        append("Imported ${incoming.size} YouTube playlist")
+                        if (incoming.size != 1) append('s')
+                        append(" — ${addedItems.coerceAtLeast(0)} new song")
+                        if (addedItems != 1) append('s')
+                        append(" added.")
+                    }
+                    notify(note)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(youtubeImporting = false) }
+                if (showMessages) notify(e.message ?: "Could not import YouTube playlists.")
+            }
+        }
+    }
+
+    /** Called after a successful YouTube connect to optionally start an automatic import. */
+    private fun maybeAutoImportYouTube() {
+        if (youtubePrefs.getBoolean("auto_import", true)) runYouTubeImport(showMessages = true)
     }
 
     fun selectSearchProvider(provider: SearchProvider) {
@@ -769,7 +887,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         val key = "$playlistId:$itemId"
         if (_state.value.youtubeDownloads.containsKey(key)) return
         if (!cloudSync.connected) {
-            notify("Sign in to your self-hosted server to use its YouTube audio extractor.")
+            notify("Sign in to your sync server to use its YouTube audio extractor.")
             return
         }
         val item = playlists.find(playlistId)?.items?.firstOrNull { it.id == itemId }
@@ -1007,6 +1125,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 _state.update {
                     it.copy(
                         syncServer = cloudSync.serverUrl,
+                        syncEffectiveServer = cloudSync.effectiveServerUrl,
+                        syncUsingCustomServer = cloudSync.isUsingCustomServer,
                         syncEmail = cloudSync.accountEmail,
                         syncConnected = cloudSync.connected,
                         syncHasRecoveryKey = cloudSync.hasRecoveryKey,
@@ -1039,6 +1159,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 _state.update {
                     it.copy(
                         syncServer = cloudSync.serverUrl,
+                        syncEffectiveServer = cloudSync.effectiveServerUrl,
+                        syncUsingCustomServer = cloudSync.isUsingCustomServer,
                         syncEmail = cloudSync.accountEmail,
                         syncConnected = cloudSync.connected,
                         syncHasRecoveryKey = cloudSync.hasRecoveryKey,
@@ -1122,6 +1244,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                         pins = pins.all(), playlists = playlists.all(), automations = automations.all(),
                         syncConnected = cloudSync.connected,
                         syncHasRecoveryKey = cloudSync.hasRecoveryKey,
+                        syncEffectiveServer = cloudSync.effectiveServerUrl,
+                        syncUsingCustomServer = cloudSync.isUsingCustomServer,
                         syncLastSyncAt = cloudSync.lastSyncAt,
                         syncPendingChanges = cloudSync.pendingChangeCount(),
                         syncFailed = false,
@@ -1165,6 +1289,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 _state.update {
                     it.copy(
                         syncConnected = false, syncHasRecoveryKey = false,
+                        syncEffectiveServer = cloudSync.effectiveServerUrl,
+                        syncUsingCustomServer = cloudSync.isUsingCustomServer,
                         syncRecoveryKey = null, syncLastSyncAt = cloudSync.lastSyncAt
                     )
                 }
@@ -1184,6 +1310,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 _state.update {
                     it.copy(
                         syncConnected = false, syncHasRecoveryKey = false, syncEmail = "",
+                        syncEffectiveServer = cloudSync.effectiveServerUrl,
+                        syncUsingCustomServer = cloudSync.isUsingCustomServer,
                         syncRecoveryKey = null, syncLastSyncAt = 0L, syncPendingChanges = 0,
                         syncFailed = false, syncError = null
                     )

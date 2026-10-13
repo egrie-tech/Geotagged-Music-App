@@ -63,8 +63,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.PaddingValues
 import tech.egrie.soundtrail.AppState
 import tech.egrie.soundtrail.SearchProvider
+import tech.egrie.soundtrail.sync.CloudSyncService
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 import tech.egrie.soundtrail.integrations.MusicProvider
 import tech.egrie.soundtrail.integrations.SongInfo
@@ -425,6 +427,7 @@ internal fun ConnectionsScreen(
     onOpenJellyfin: () -> Unit,
     onConnectYouTubeData: () -> Unit, onConnectYouTubeOAuth: (String) -> Unit, onDisconnectYouTubeData: () -> Unit,
     onOpenYouTubeSetup: () -> Unit,
+    onImportYouTubePlaylists: () -> Unit, onSetYouTubeAutoImport: (Boolean) -> Unit,
     backupBusy: Boolean, onExportBackup: () -> Unit, onImportBackup: () -> Unit,
     syncBusy: Boolean,
     onCreateCloudSyncAccount: (String, String, String) -> Unit,
@@ -438,7 +441,11 @@ internal fun ConnectionsScreen(
     onDisconnectCloudSync: () -> Unit,
     onDeleteCloudSyncAccount: () -> Unit
 ) {
-    var syncServer by rememberSaveable(state.syncServer) { mutableStateOf(state.syncServer) }
+    // When the user has no saved server, pre-fill the field with the default public server so
+    // that sign-up and sign-in just work; self-hosters overwrite it with their own URL.
+    var syncServer by rememberSaveable(state.syncServer) {
+        mutableStateOf(state.syncServer.ifBlank { CloudSyncService.DEFAULT_SYNC_SERVER })
+    }
     var syncEmail by rememberSaveable(state.syncEmail) { mutableStateOf(state.syncEmail) }
     var syncPassword by remember { mutableStateOf("") }
     var syncRecoveryInput by remember { mutableStateOf("") }
@@ -722,14 +729,14 @@ internal fun ConnectionsScreen(
                     Text("YouTube Music", style = MaterialTheme.typography.titleLarge)
                     Text(
                         when {
-                            state.youtubeDataConnected -> "Playlist search connected"
+                            state.youtubeDataConnected -> "Playlists & search connected"
                             state.youtubeAppInstalled -> "Music app detected"
                             else -> "Tap to set up"
                         },
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                if (state.youtubeDataConnected) Icon(Icons.Rounded.Check, "Playlist search connected", tint = Palette.youtube)
+                if (state.youtubeDataConnected) Icon(Icons.Rounded.Check, "Playlists & search connected", tint = Palette.youtube)
                 Icon(
                     if (expandedService == "youtube") Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = if (expandedService == "youtube") "Collapse YouTube Music" else "Set up YouTube Music",
@@ -738,14 +745,39 @@ internal fun ConnectionsScreen(
             }
             if (expandedService == "youtube") {
                 Spacer(Modifier.height(13.dp))
-                Text("Optional YouTube playlist search", style = MaterialTheme.typography.titleMedium)
+                Text("YouTube playlist import & search", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 if (state.youtubeDataConnected) {
                     Text(
-                        "Read-only playlist search${state.youtubeDataAccount?.let { " · $it" }.orEmpty()}. " +
-                            "The full YouTube Music library is not available through this API.",
+                        "Read-only access${state.youtubeDataAccount?.let { " · $it" }.orEmpty()}. " +
+                            "Playlists (including Liked videos and Uploads) are imported into your " +
+                            "library so you can pin or automate them. The YouTube Data API cannot " +
+                            "reach YouTube Music-only collections like saved songs/albums or " +
+                            "auto-generated mixes (Supermix, Daylist, etc.).",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
                     )
+                    Spacer(Modifier.height(10.dp))
+                    PrimaryButton(
+                        if (state.youtubeImporting) "Importing playlists…" else "Import playlists now",
+                        onImportYouTubePlaylists, Modifier.fillMaxWidth(),
+                        enabled = !state.youtubeImporting
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Import automatically when connected", style = MaterialTheme.typography.titleMedium)
+                            val importTime = if (state.youtubeLastImportedAt > 0L)
+                                " · last imported ${formatSyncTime(state.youtubeLastImportedAt)}" else ""
+                            Text(
+                                "Pulls new videos into matching Soundtrail playlists.$importTime",
+                                color = Palette.muted, style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                        Switch(
+                            checked = state.youtubeAutoImportEnabled,
+                            onCheckedChange = onSetYouTubeAutoImport
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     TextButton(onClick = onDisconnectYouTubeData) {
                         Text("Disconnect and request revocation", color = Palette.coral)
@@ -808,7 +840,7 @@ internal fun ConnectionsScreen(
                 Spacer(Modifier.height(7.dp))
                 Text(state.servicesLabel, color = Palette.lilac, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(7.dp))
-                Text("App handoff uses the music app. Google sign-in is separate and only searches accessible playlists.",
+                Text("App handoff uses the music app. Google sign-in powers playlist search AND playlist import; Music-only library items remain in the YouTube Music app.",
                     color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(15.dp))
                 PrimaryButton("Open YouTube Music", onOpenYoutube, Modifier.fillMaxWidth())
@@ -827,9 +859,13 @@ internal fun ConnectionsScreen(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Self-hosted cloud sync", style = MaterialTheme.typography.titleLarge)
+                    Text("Cloud sync", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        if (state.syncConnected) "Connected · ${state.syncEmail}" else "Your server, your encrypted data",
+                        if (state.syncConnected) {
+                            "Connected · ${state.syncEmail}${if (state.syncUsingCustomServer) " · self-hosted" else " · public server"}"
+                        } else {
+                            "Default public server · self-host your own anytime"
+                        },
                         color = if (state.syncConnected) Palette.primary else Palette.secondary,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -838,10 +874,13 @@ internal fun ConnectionsScreen(
             }
             Spacer(Modifier.height(13.dp))
             Text(
-                "Sync pins, playlists, automations, edits, and deletions between devices. Library " +
-                    "data is encrypted on this device; your server stores ciphertext plus account " +
-                    "metadata. The recovery key is yours alone. A password reset cannot restore " +
-                    "synced data without that key.",
+                "Sync pins, playlists, automations, edits, and deletions between devices. Out of " +
+                    "the box the app connects to the public Soundtrail server " +
+                    "(${CloudSyncService.DEFAULT_SYNC_SERVER.removePrefix("https://")}). You can instead point it at " +
+                    "your own self-hosted server by changing the URL below. Library data is " +
+                    "encrypted on this device; the server stores ciphertext plus account metadata. " +
+                    "The recovery key is yours alone. A password reset cannot restore synced data " +
+                    "without that key.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(13.dp))
@@ -849,10 +888,26 @@ internal fun ConnectionsScreen(
                 OutlinedTextField(
                     value = syncServer, onValueChange = { syncServer = it },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text("Self-hosted server URL (HTTPS)") },
-                    placeholder = { Text("https://sync.example.net") },
+                    label = { Text("Sync server URL (HTTPS)") },
+                    placeholder = { Text(CloudSyncService.DEFAULT_SYNC_SERVER) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
                 )
+                Spacer(Modifier.height(4.dp))
+                Row {
+                    TextButton(
+                        onClick = { syncServer = CloudSyncService.DEFAULT_SYNC_SERVER },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("Use public server", color = Palette.lilac, style = MaterialTheme.typography.labelMedium)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Self-hosters: replace with your own server's HTTPS URL.",
+                        color = Palette.muted,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = syncEmail, onValueChange = { syncEmail = it },
@@ -889,9 +944,19 @@ internal fun ConnectionsScreen(
                     }, enabled = !syncBusy && syncServer.isNotBlank() && syncEmail.isNotBlank() && syncPassword.isNotBlank()
                 ) { Text("Already have an account? Sign in", color = Palette.lilac) }
             } else {
+                Text(
+                    if (state.syncUsingCustomServer)
+                        "Self-hosted server: ${state.syncEffectiveServer}"
+                    else
+                        "Public server: ${state.syncEffectiveServer}",
+                    color = Palette.muted, style = MaterialTheme.typography.labelMedium
+                )
                 if (state.syncLastSyncAt > 0L) {
+                    Spacer(Modifier.height(4.dp))
                     Text("Last synced ${formatSyncTime(state.syncLastSyncAt)}",
                         color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                } else {
                     Spacer(Modifier.height(4.dp))
                 }
                 val syncStatus = when {
