@@ -71,10 +71,12 @@ internal data class AppState(
     val jellyfinServerName: String = "",
     val youtubeDataConnected: Boolean = false,
     val youtubeDataAccount: String? = null,
+    val youtubeOAuthClientId: String = "",
     val connecting: Boolean = false,
     val connectingSoundcloud: Boolean = false,
     val connectingJellyfin: Boolean = false,
     val connectingYouTubeData: Boolean = false,
+    val connectingYouTubeOAuth: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.SPOTIFY,
     val searching: Boolean = false,
     val results: List<TrackResult> = emptyList(),
@@ -111,7 +113,9 @@ internal data class AppState(
     val spotifyAppInstalled: Boolean = false,
     val soundcloudAppInstalled: Boolean = false,
     val youtubeAppInstalled: Boolean = false,
-    val servicesLabel: String = "Checking services…"
+    val servicesLabel: String = "Checking services…",
+    val gmsSignInAvailable: Boolean = false,
+    val microGReInstalled: Boolean = false
 )
 
 internal data class JellyfinDownloadProgress(val receivedBytes: Long, val totalBytes: Long)
@@ -177,8 +181,9 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
             jellyfinServerName = jellyfin.serverName,
             youtubeDataConnected = youtubeData.connected,
             youtubeDataAccount = youtubeData.accountName,
-            youtubeAutoImportEnabled = youtubePrefs.getBoolean("auto_import", true),
-            youtubeLastImportedAt = youtubePrefs.getLong("last_imported_at", 0L),
+            youtubeOAuthClientId = youtubeData.oauthClientId,
+            gmsSignInAvailable = apps.systemGmsInstalled,
+            microGReInstalled = apps.microGReInstalled,
             syncServer = cloudSync.serverUrl,
             syncEffectiveServer = cloudSync.effectiveServerUrl,
             syncUsingCustomServer = cloudSync.isUsingCustomServer,
@@ -221,6 +226,8 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 soundcloudAppInstalled = apps.soundcloudInstalled,
                 youtubeAppInstalled = apps.youtubeMusicPackage != null,
                 servicesLabel = apps.servicesLabel,
+                gmsSignInAvailable = apps.systemGmsInstalled,
+                microGReInstalled = apps.microGReInstalled,
                 spotifyConnected = spotify.connected,
                 soundcloudConnected = soundcloud.connected,
                 jellyfinConnected = jellyfin.connected,
@@ -503,8 +510,49 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /** Starts the browser OAuth flow with the user's own Desktop client ID (no GMS needed). */
+    fun beginYouTubeOAuth(clientId: String): Uri {
+        val uri = youtubeData.beginOAuthSignIn(clientId)
+        _state.update { it.copy(youtubeOAuthClientId = youtubeData.oauthClientId) }
+        return uri
+    }
+
+    fun cancelYouTubeOAuth() = youtubeData.cancelOAuthSignIn()
+
+    /** Finishes the browser OAuth flow after Google redirects back to the app. */
+    fun finishYouTubeOAuth(uri: Uri) {
+        if (_state.value.connectingYouTubeOAuth) return
+        _state.update { it.copy(connectingYouTubeOAuth = true) }
+        viewModelScope.launch {
+            try {
+                val label = youtubeData.finishOAuthSignIn(uri)
+                _state.update { it.copy(youtubeDataConnected = true, youtubeDataAccount = label) }
+                notify("YouTube read-only access connected. Search your playlists to find videos.")
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        youtubeDataConnected = youtubeData.connected,
+                        youtubeDataAccount = youtubeData.accountName
+                    )
+                }
+                notify(e.message ?: "Could not connect your YouTube account.")
+            } finally {
+                _state.update {
+                    it.copy(
+                        connectingYouTubeOAuth = false,
+                        youtubeDataConnected = youtubeData.connected,
+                        youtubeDataAccount = youtubeData.accountName,
+                        youtubeOAuthClientId = youtubeData.oauthClientId
+                    )
+                }
+            }
+        }
+    }
+
     fun disconnectYouTubeData() {
-        youtubeData.disconnect()
+        // Clear local state first; the server-side revocation is best-effort and only
+        // invalidates the exact token captured here, so it cannot race a reconnect.
+        val previousOAuth = youtubeData.disconnect()
         _state.update {
             it.copy(
                 youtubeDataConnected = false,
@@ -514,7 +562,10 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 searchError = null
             )
         }
-        notify("YouTube access disconnected on this device; Google services were asked to revoke the grant.")
+        notify("YouTube access disconnected on this device; Google was asked to revoke the grant.")
+        if (previousOAuth != null) {
+            viewModelScope.launch { youtubeData.revokeOAuthToken(previousOAuth) }
+        }
     }
 
     fun setYouTubeAutoImport(enabled: Boolean) {

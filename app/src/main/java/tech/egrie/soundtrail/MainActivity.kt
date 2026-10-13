@@ -211,6 +211,7 @@ class MainActivity : ComponentActivity() {
                     onDisconnectJellyfin = model::disconnectJellyfin,
                     onOpenJellyfin = { if (!apps.openWeb(model.jellyfinServerUrl())) model.notify("No browser found.") },
                     onConnectYouTubeData = ::connectYouTubeData,
+                    onConnectYouTubeOAuth = ::connectYouTubeOAuth,
                     onDisconnectYouTubeData = model::disconnectYouTubeData,
                     onOpenYouTubeSetup = {
                         if (!apps.openWeb("https://console.cloud.google.com/apis/credentials")) {
@@ -271,6 +272,9 @@ class MainActivity : ComponentActivity() {
                     onOpenMicroG = {
                         if (!apps.openWeb("https://microg.org/")) model.notify("No browser found.")
                     },
+                    onOpenMicroGRe = {
+                        if (!apps.openWeb("https://github.com/MorpheApp/MicroG-RE")) model.notify("No browser found.")
+                    },
                     onOpenSoundcloudApps = {
                         if (!apps.openWeb("https://developers.soundcloud.com/docs/api/register-app")) {
                             model.notify("No browser found.")
@@ -313,9 +317,11 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             Intent.ACTION_VIEW -> if (intent.data?.scheme == "app.soundtrail") {
                 intent.data?.let { uri ->
-                    when (uri.host) {
-                        "spotify-auth" -> model.finishSpotify(uri)
-                        "soundcloud-auth" -> model.finishSoundcloud(uri)
+                    // YouTube OAuth uses Google's scheme:/path form (host-less) or scheme://host.
+                    when {
+                        uri.host == "spotify-auth" -> model.finishSpotify(uri)
+                        uri.host == "soundcloud-auth" -> model.finishSoundcloud(uri)
+                        uri.host == "youtube-auth" || uri.path == "/youtube-auth" -> model.finishYouTubeOAuth(uri)
                     }
                 }
                 clearHandledIntent()
@@ -398,6 +404,25 @@ class MainActivity : ComponentActivity() {
             model.notify(
                 "Could not start Google sign-in. Install or configure microG or Google Play services."
             )
+        }
+    }
+
+    /**
+     * Browser-based YouTube OAuth with the user's own Desktop client ID. Unlike Google Sign-In
+     * above, this needs no Play services, standard microG, or MicroG RE account on the device.
+     */
+    private fun connectYouTubeOAuth(id: String) {
+        try {
+            val uri = model.beginYouTubeOAuth(id)
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: ActivityNotFoundException) {
+            model.cancelYouTubeOAuth()
+            model.notify("Install a browser to sign in with YouTube.")
+        } catch (e: SecurityException) {
+            model.cancelYouTubeOAuth()
+            model.notify("Could not open YouTube sign-in in a browser.")
+        } catch (e: Exception) {
+            model.notify(e.message ?: "Could not start YouTube sign-in.")
         }
     }
 
