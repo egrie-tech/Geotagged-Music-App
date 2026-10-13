@@ -21,7 +21,10 @@ class DeviceApps(private val context: Context) {
     val spotifyInstalled: Boolean get() = installed("com.spotify.music")
     val soundcloudInstalled: Boolean get() = installed("com.soundcloud.android")
     val youtubeMusicPackage: String? get() = listOf(
-        "com.google.android.apps.youtube.music", "app.revanced.android.youtube.music"
+        "app.morphe.android.apps.youtube.music",
+        "com.google.android.apps.youtube.music",
+        "app.revanced.android.apps.youtube.music",
+        "app.revanced.android.youtube.music"
     ).firstOrNull(::installed)
 
     /** A standard com.google.android.gms installation may be Google Play Services OR microG. */
@@ -47,6 +50,34 @@ class DeviceApps(private val context: Context) {
     }
 
     fun openYouTubeMusic(): Boolean = launch(youtubeMusicPackage) || view("https://music.youtube.com/")
+
+    /** Opens the signed-in user's library inside YouTube Music or a Morphe-compatible install. */
+    fun openYouTubeMusicLibrary(): Boolean =
+        openYouTubeMusicUrl("https://music.youtube.com/library")
+
+    /**
+     * Hands a search to the user's YouTube Music app (including installs using microG), falling
+     * back to the YouTube Music website. Soundtrail never queries a YouTube Music API itself.
+     */
+    fun searchYouTubeMusic(query: String): Boolean =
+        openYouTubeMusicSearch(YouTubeSearch.searchUrl(query, ""))
+
+    fun searchYouTubeMusic(title: String, artist: String): Boolean =
+        openYouTubeMusicSearch(YouTubeSearch.searchUrl(title, artist))
+
+    /** Only accept search links built for the YouTube Music host before handing them off. */
+    fun openYouTubeMusicSearch(url: String): Boolean {
+        if (Uri.parse(url).path != "/search") return false
+        return openYouTubeMusicUrl(url)
+    }
+
+    private fun openYouTubeMusicUrl(url: String): Boolean {
+        val uri = Uri.parse(url)
+        if (uri.scheme != "https" || uri.host != "music.youtube.com") return false
+        val packageName = youtubeMusicPackage
+        return (packageName != null && view(url, packageName)) || view(url)
+    }
+
     fun openSpotify(): Boolean = launch("com.spotify.music".takeIf(::installed)) || view("https://open.spotify.com/")
     fun openSoundCloud(): Boolean = launch("com.soundcloud.android".takeIf(::installed)) || view("https://soundcloud.com/")
 

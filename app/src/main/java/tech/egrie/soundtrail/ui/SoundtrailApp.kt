@@ -103,6 +103,9 @@ internal fun SoundtrailApp(
     onConnectJellyfin: (String, String, String) -> Unit,
     onDisconnectJellyfin: () -> Unit,
     onOpenJellyfin: () -> Unit,
+    onConnectYouTubeData: () -> Unit,
+    onDisconnectYouTubeData: () -> Unit,
+    onOpenYouTubeSetup: () -> Unit,
     onTogglePlayback: () -> Unit,
     onStopPlayback: () -> Unit,
     onPlay: (MusicPin) -> Unit,
@@ -110,6 +113,8 @@ internal fun SoundtrailApp(
     onDelete: (String) -> Unit,
     onOpenSpotify: () -> Unit,
     onOpenYoutube: () -> Unit,
+    onSearchYoutubeMusic: (String) -> Unit,
+    onOpenYoutubeLibrary: () -> Unit,
     onOpenSoundcloud: () -> Unit,
     onOpenDashboard: () -> Unit,
     onOpenMicroG: () -> Unit,
@@ -195,7 +200,9 @@ internal fun SoundtrailApp(
                     onSelectLookup = {
                         draft = PinDraft(title = it.title, artist = it.artist, url = it.url.orEmpty())
                     },
-                    onOpenYoutube = onOpenYoutube, onNotice = onNotice
+                    onSearchYoutubeMusic = onSearchYoutubeMusic,
+                    onOpenYoutubeLibrary = onOpenYoutubeLibrary,
+                    onNotice = onNotice
                 )
                 Tab.PINS -> PinsScreen(
                     state, onNewPin = { draft = PinDraft() }, onLocate = onLocate,
@@ -206,7 +213,8 @@ internal fun SoundtrailApp(
                     state, onConnect, onDisconnect, onConnectSoundcloud, onDisconnectSoundcloud,
                     onOpenSpotify, onOpenYoutube, onOpenSoundcloud,
                     onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps,
-                    onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin
+                    onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin,
+                    onConnectYouTubeData, onDisconnectYouTubeData, onOpenYouTubeSetup
                 )
             }
         }
@@ -299,8 +307,8 @@ private fun HomeScreen(
             Spacer(Modifier.height(9.dp))
             Text("Four worlds. One map.", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(6.dp))
-            Text("Search with Spotify, SoundCloud, or your own Jellyfin server, pin a YouTube " +
-                "Music link, or let a playlist greet you at a place.",
+            Text("Search Spotify, SoundCloud, Jellyfin, or YouTube Music in its app, pin a song " +
+                "to a place, or let a playlist greet you there.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.secondary)
             Spacer(Modifier.height(6.dp))
             TextButton(onClick = onConnections) { Text("Manage connections  →", color = Palette.primary) }
