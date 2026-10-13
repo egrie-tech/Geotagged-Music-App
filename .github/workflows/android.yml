@@ -72,3 +72,6 @@ jobs:
             echo "::error title=Debug APK signed with the wrong key::app-debug.apk was not signed with keystore/soundtrail-debug.p12, so sideloaded updates would fail with INSTALL_FAILED_UPDATE_INCOMPATIBLE."
             exit 1
           fi
+          # Also surfaced as an annotation, so the fingerprint that ships with the APK is
+          # visible in the run summary without downloading job logs.
+          echo "::notice title=Debug APK signing key SHA-256::APK=${apk_sha:-unknown} keystore=${key_sha:-unknown}"
