@@ -173,8 +173,8 @@ internal fun MusicSearchScreen(
             Spacer(Modifier.height(10.dp))
             SurfaceCard(Modifier.fillMaxWidth()) {
                 DisclosureHeader(
-                    title = "YouTube Music",
-                    subtitle = "Search the app or paste a song link",
+                    title = "YouTube / YouTube Music",
+                    subtitle = "Search the app or paste a song link — kept separate",
                     icon = Icons.Rounded.Link,
                     accent = Palette.youtube,
                     expanded = youtubeExpanded,
@@ -182,7 +182,7 @@ internal fun MusicSearchScreen(
                 )
                 if (youtubeExpanded) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Search YouTube Music and paste song links — all playback happens directly in Soundtrail.",
+                    Text("YouTube and YouTube Music are now kept separate. music.youtube.com links stay as YouTube Music, youtube.com / youtu.be links stay as YouTube. Liked YouTube (YouTube Liked) and YouTube Music liked stay in different playlists. All playback happens directly in Soundtrail.",
                         color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
@@ -204,20 +204,20 @@ internal fun MusicSearchScreen(
                         Text("Open your YouTube Music library  ↗", color = Palette.youtube)
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text("Or paste a song link", style = MaterialTheme.typography.labelMedium,
+                    Text("Or paste a YouTube or YouTube Music song link", style = MaterialTheme.typography.labelMedium,
                         color = Palette.secondary)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
                         value = youtubeLink, onValueChange = { youtubeLink = it },
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("music.youtube.com/watch?v=…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("youtube.com/watch?v=… or music.youtube.com/watch?v=…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done)
                     )
                     Spacer(Modifier.height(8.dp))
                     PrimaryButton("Pin this link", {
                         val link = MusicLinkParser.fromText(youtubeLink)
-                        if (link?.provider == MusicProvider.YOUTUBE_MUSIC) onAddLink(link.url)
-                        else onNotice("Paste a YouTube Music song link (not a playlist or search page).")
+                        if (link?.provider == MusicProvider.YOUTUBE_MUSIC || link?.provider == MusicProvider.YOUTUBE) onAddLink(link.url)
+                        else onNotice("Paste a YouTube or YouTube Music song link (not a playlist or search page). YouTube and YouTube Music are kept separate.")
                     }, Modifier.fillMaxWidth(), enabled = youtubeLink.isNotBlank())
                 }
             }

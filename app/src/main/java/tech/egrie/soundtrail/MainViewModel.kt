@@ -452,7 +452,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                     artist = item.artist,
                     itemId = item.id,
                     file = file,
-                    provider = item.provider ?: MusicProvider.YOUTUBE_MUSIC
+                    provider = item.provider ?: MusicProvider.YOUTUBE
                 )
                 return
             }
@@ -506,7 +506,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                             notify("Couldn't get a SoundCloud stream for this track. It may be private or require re-connecting SoundCloud.")
                         }
                     }
-                    MusicProvider.YOUTUBE_MUSIC -> {
+                    MusicProvider.YOUTUBE_MUSIC, MusicProvider.YOUTUBE -> {
                         val videoId = MusicLinkParser.youtubeVideoId(link.url)
                         if (videoId == null) {
                             notify("That YouTube link is not a playable video.")
@@ -516,7 +516,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                             notify("Connect your sync server to play YouTube audio in-app, or download it for offline playback first.")
                             return@launch
                         }
-                        player.setBuffering(title, artist, itemId, MusicProvider.YOUTUBE_MUSIC)
+                        player.setBuffering(title, artist, itemId, link.provider)
                         // Clean up previous in-app YouTube playback temp file.
                         lastYouTubePlaybackFile?.let { prev ->
                             withContext(Dispatchers.IO) { files.discardDownloadTemp(prev) }
@@ -533,7 +533,7 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                                 return@launch
                             }
                             lastYouTubePlaybackFile = temp
-                            player.playLocalFile(title, artist, itemId, temp, MusicProvider.YOUTUBE_MUSIC)
+                            player.playLocalFile(title, artist, itemId, temp, link.provider)
                         } catch (e: Exception) {
                             withContext(Dispatchers.IO) { files.discardDownloadTemp(temp) }
                             player.stop()
@@ -745,16 +745,24 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
                 val imported: List<YouTubeImportedPlaylist> = withContext(Dispatchers.IO) { youtubeData.importPlaylists() }
                 val now = System.currentTimeMillis()
                 val incoming = imported.map { yt ->
+                    // Keep YouTube and YouTube Music liked separate: rename YouTube's special playlists
+                    // so they don't mix with manually created YouTube Music liked playlists.
+                    val distinctName = when (yt.title) {
+                        "Liked videos" -> "YouTube Liked"
+                        "Uploads" -> "YouTube Uploads"
+                        "Favorites" -> "YouTube Favorites"
+                        else -> yt.title
+                    }
                     Playlist(
                         id = "yt-pl:${yt.playlistId}",
-                        name = yt.title,
+                        name = distinctName,
                         items = yt.items.map { video ->
                             PlaylistItem(
                                 id = "yt:${yt.playlistId}:${video.videoId}",
                                 title = video.title,
                                 artist = video.artist,
-                                url = "https://music.youtube.com/watch?v=${video.videoId}",
-                                provider = MusicProvider.YOUTUBE_MUSIC,
+                                url = "https://www.youtube.com/watch?v=${video.videoId}",
+                                provider = MusicProvider.YOUTUBE,
                                 createdAt = now
                             )
                         },

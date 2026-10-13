@@ -86,7 +86,7 @@ internal fun PinEditor(
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 url, { url = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                label = { Text("Spotify, SoundCloud, or YouTube Music song link *") },
+                label = { Text("Spotify, YouTube, YouTube Music, SoundCloud, or Jellyfin link *") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
             )
             if (provider != null) {
@@ -94,7 +94,7 @@ internal fun PinEditor(
                 ProviderPill(provider)
             } else if (url.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Text("Use a Spotify, SoundCloud, or YouTube Music song URL.",
+                Text("Use a Spotify, YouTube, YouTube Music, SoundCloud, or Jellyfin song URL. YouTube and YouTube Music are kept separate.",
                     style = MaterialTheme.typography.labelMedium, color = Palette.coral)
             }
         }

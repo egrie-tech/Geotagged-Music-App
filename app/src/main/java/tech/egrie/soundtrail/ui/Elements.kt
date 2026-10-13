@@ -118,6 +118,7 @@ internal fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier
 internal fun ProviderArtwork(provider: MusicProvider, modifier: Modifier = Modifier) {
     val gradient = when (provider) {
         MusicProvider.SPOTIFY -> listOf(Palette.primaryDark, Color(0xFF5A6740))
+        MusicProvider.YOUTUBE -> listOf(Color(0xFF4A2E2E), Color(0xFFB04040))
         MusicProvider.YOUTUBE_MUSIC -> listOf(Color(0xFF49313D), Color(0xFF9B5960))
         MusicProvider.SOUNDCLOUD -> listOf(Color(0xFF4A2E1A), Color(0xFF9C4A1F))
         MusicProvider.JELLYFIN -> listOf(Color(0xFF2E2440), Color(0xFF7A4E9B))
@@ -135,6 +136,7 @@ internal fun ProviderArtwork(provider: MusicProvider, modifier: Modifier = Modif
 internal fun ProviderPill(provider: MusicProvider) {
     val color = when (provider) {
         MusicProvider.SPOTIFY -> Palette.spotify
+        MusicProvider.YOUTUBE -> Palette.youtube
         MusicProvider.YOUTUBE_MUSIC -> Palette.youtube
         MusicProvider.SOUNDCLOUD -> Palette.soundcloud
         MusicProvider.JELLYFIN -> Palette.jellyfin
@@ -236,6 +238,7 @@ internal fun NowPlayingBar(nowPlaying: NowPlaying, onToggle: () -> Unit, onStop:
         tech.egrie.soundtrail.integrations.MusicProvider.SPOTIFY -> Palette.spotify
         tech.egrie.soundtrail.integrations.MusicProvider.SOUNDCLOUD -> Palette.soundcloud
         tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE_MUSIC -> Palette.youtube
+        tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE -> Palette.youtube
         tech.egrie.soundtrail.integrations.MusicProvider.JELLYFIN -> Palette.jellyfin
     }
     Column(

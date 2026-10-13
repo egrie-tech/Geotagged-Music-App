@@ -220,7 +220,8 @@ internal class JellyfinPlayer private constructor(context: Context) {
                 MusicProvider.JELLYFIN -> "Couldn't stream this song. It may have been moved on the server."
                 MusicProvider.SPOTIFY -> "No Spotify preview available for this track. Spotify full playback requires their app, but previews play here when available."
                 MusicProvider.SOUNDCLOUD -> "Couldn't stream this SoundCloud track. It may be private or removed."
-                MusicProvider.YOUTUBE_MUSIC -> "Couldn't play this YouTube track. Connect your sync server for in-app audio or use an offline copy."
+                MusicProvider.YOUTUBE_MUSIC -> "Couldn't play this YouTube Music track. Connect your sync server for in-app audio or use an offline copy."
+                MusicProvider.YOUTUBE -> "Couldn't play this YouTube track. Connect your sync server for in-app audio or use an offline copy."
             }
             fail(msg)
             return
@@ -293,7 +294,8 @@ internal class JellyfinPlayer private constructor(context: Context) {
                 MusicProvider.JELLYFIN -> "Couldn't stream this song. The server may be offline or the file unplayable here."
                 MusicProvider.SPOTIFY -> "Couldn't play Spotify preview for this track."
                 MusicProvider.SOUNDCLOUD -> "Couldn't stream this SoundCloud track."
-                MusicProvider.YOUTUBE_MUSIC -> "Couldn't play this YouTube track in-app."
+                MusicProvider.YOUTUBE_MUSIC -> "Couldn't play this YouTube Music track in-app."
+                MusicProvider.YOUTUBE -> "Couldn't play this YouTube track in-app."
             }
             fail(msg)
         }

@@ -192,6 +192,7 @@ class PlaybackService : Service() {
             tech.egrie.soundtrail.integrations.MusicProvider.SPOTIFY -> "Spotify preview"
             tech.egrie.soundtrail.integrations.MusicProvider.SOUNDCLOUD -> "SoundCloud"
             tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE_MUSIC -> "YouTube Music"
+            tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE -> "YouTube"
             tech.egrie.soundtrail.integrations.MusicProvider.JELLYFIN -> "Jellyfin"
             null -> "Soundtrail"
         }

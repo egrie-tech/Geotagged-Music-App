@@ -615,8 +615,8 @@ internal object YouTubeApiParser {
             TrackResult(
                 title = title.take(120),
                 artist = artist,
-                url = "https://music.youtube.com/watch?v=$id",
-                provider = MusicProvider.YOUTUBE_MUSIC
+                url = "https://www.youtube.com/watch?v=$id",
+                provider = MusicProvider.YOUTUBE
             )
         }.distinctBy { it.url }
     }

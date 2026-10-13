@@ -14,17 +14,27 @@ class MusicLinkParserTest {
         assertEquals(expected, MusicLinkParser.fromText("Listen to this: https://open.spotify.com/track/$spotifyId?si=x!"))
     }
 
-    @Test fun `youtube music share links resolve to a canonical song URL`() {
-        val expected = MusicLink(MusicProvider.YOUTUBE_MUSIC,
+    @Test fun `youtube and youtube music share links resolve to distinct canonical song URLs`() {
+        val ytMusic = MusicLink(MusicProvider.YOUTUBE_MUSIC,
             "https://music.youtube.com/watch?v=dQw4w9WgXcQ")
-        assertEquals(expected, MusicLinkParser.parse("https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking"))
-        assertEquals(expected, MusicLinkParser.fromText("Check it out https://youtu.be/dQw4w9WgXcQ)"))
-        assertEquals(expected, MusicLinkParser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        val yt = MusicLink(MusicProvider.YOUTUBE,
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        assertEquals(ytMusic, MusicLinkParser.parse("https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking"))
+        // youtu.be and youtube.com are YouTube (not YouTube Music) to keep liked separation
+        assertEquals(yt, MusicLinkParser.fromText("Check it out https://youtu.be/dQw4w9WgXcQ)"))
+        assertEquals(yt, MusicLinkParser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertEquals(ytMusic, MusicLinkParser.parse("https://music.youtube.com/watch?v=dQw4w9WgXcQ"))
     }
 
-    @Test fun `youtube video id extraction accepts only canonical supported song links`() {
+    @Test fun `youtube video id extraction accepts both youtube and youtube music links`() {
         assertEquals("dQw4w9WgXcQ", MusicLinkParser.youtubeVideoId(
             "https://youtu.be/dQw4w9WgXcQ?si=tracking"
+        ))
+        assertEquals("dQw4w9WgXcQ", MusicLinkParser.youtubeVideoId(
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking"
+        ))
+        assertEquals("dQw4w9WgXcQ", MusicLinkParser.youtubeVideoId(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         ))
         assertNull(MusicLinkParser.youtubeVideoId("https://music.youtube.com/playlist?list=PL123"))
         assertNull(MusicLinkParser.youtubeVideoId("https://example.invalid/watch?v=dQw4w9WgXcQ"))

@@ -407,7 +407,7 @@ private fun PlaylistDetailCard(
         playlist.items.forEach { item ->
             val provider = item.url?.let(MusicLinkParser::parse)?.provider
             val isJellyfinItem = provider == MusicProvider.JELLYFIN
-            val isYouTubeItem = provider == MusicProvider.YOUTUBE_MUSIC
+            val isYouTubeItem = provider == MusicProvider.YOUTUBE_MUSIC || provider == MusicProvider.YOUTUBE
             val download = state.jellyfinDownloads["${playlist.id}:${item.id}"]
             val youtubeDownload = state.youtubeDownloads["${playlist.id}:${item.id}"]
             Row(

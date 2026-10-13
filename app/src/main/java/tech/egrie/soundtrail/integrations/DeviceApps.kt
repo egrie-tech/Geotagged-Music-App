@@ -56,6 +56,7 @@ class DeviceApps(private val context: Context) {
         val preferredPackage = when (verified.provider) {
             MusicProvider.SPOTIFY -> "com.spotify.music".takeIf(::installed)
             MusicProvider.YOUTUBE_MUSIC -> youtubeMusicPackage
+            MusicProvider.YOUTUBE -> "com.google.android.youtube".takeIf(::installed)
             MusicProvider.SOUNDCLOUD -> "com.soundcloud.android".takeIf(::installed)
             MusicProvider.JELLYFIN -> null
         }
