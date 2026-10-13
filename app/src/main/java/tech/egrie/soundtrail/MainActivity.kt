@@ -159,17 +159,14 @@ class MainActivity : ComponentActivity() {
                         onNewPlaylist = model::createPlaylist,
                         onDeletePlaylist = model::deletePlaylist,
                         onAddSong = { playlistId, title, artist, url ->
-                            val search = model.addToPlaylist(playlistId, title, artist, url)
-                            if (search != null && !apps.openYouTubeMusicSearch(search)) {
-                                model.notify("No YouTube Music app or browser found.")
-                            }
+                            model.addToPlaylist(playlistId, title, artist, url)
                         },
                         onRemoveSong = model::removePlaylistItem,
                         onPlaySong = ::playPlaylistItem,
                         onSearchSong = { item ->
-                            if (!apps.searchYouTubeMusic(item.title, item.artist)) {
-                                model.notify("No YouTube Music app or browser found.")
-                            }
+                            // All playback is now in-app; searching YouTube Music externally is optional.
+                            // For now, just play the item directly in-app if possible.
+                            playPlaylistItem(item)
                         },
                         onGetSong = { item ->
                             // This external action shares a link only; the separate YouTube offline
@@ -426,33 +423,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Jellyfin songs stream inside Soundtrail; everything else is handed to the user's apps. */
+    /** All music now plays directly in the app via the unified player. */
     private fun play(pin: MusicPin) {
-        val link = MusicLink(pin.provider, pin.url)
-        if (link.provider == MusicProvider.JELLYFIN) {
-            model.playJellyfin(link, pin.title, pin.artist)
-            return
-        }
-        if (!apps.play(link)) {
-            model.notify("No app can open this song link.")
-        }
+        model.playPin(pin)
     }
 
-    /** Plays locally imported audio first; then the linked song; else a YouTube Music search. */
+    /** Plays directly in-app: local files, Jellyfin, Spotify previews, SoundCloud, YouTube via server. */
     private fun playPlaylistItem(item: PlaylistItem) {
-        if (item.localFile != null && apps.playLocalFile(item.localFile)) return
-        val url = item.url
-        if (url != null) {
-            val link = MusicLinkParser.parse(url)
-            if (link != null && link.provider == MusicProvider.JELLYFIN) {
-                model.playJellyfin(link, item.title, item.artist)
-                return
-            }
-            if ((link != null && apps.play(link)) || apps.openWeb(url)) return
-        }
-        if (!apps.searchYouTubeMusic(item.title, item.artist)) {
-            model.notify("No YouTube Music app or browser found.")
-        }
+        model.playPlaylistItemUnified(item)
     }
 
     private fun showMap(point: GeoPoint) {

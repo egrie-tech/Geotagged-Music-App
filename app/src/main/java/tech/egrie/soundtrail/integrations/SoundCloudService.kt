@@ -141,13 +141,91 @@ class SoundCloudService(context: Context) {
             val artist = track.optString("metadata_artist").ifBlank {
                 track.optJSONObject("user")?.optString("username").orEmpty()
             }.ifBlank { "Unknown artist" }
+            // Try to extract a direct stream candidate from the search payload to allow instant in-app playback.
+            val playable = extractPlayableFromTrackJson(track)
             TrackResult(
                 title = title.take(120),
                 artist = artist,
                 url = link.url,
-                provider = MusicProvider.SOUNDCLOUD
+                provider = MusicProvider.SOUNDCLOUD,
+                playableUrl = playable
             )
         }.distinctBy { it.url }
+    }
+
+    /** Attempts to resolve a SoundCloud permalink to a direct streaming URL for in-app playback. */
+    suspend fun resolvePlayableUrl(link: MusicLink): String? {
+        if (link.provider != MusicProvider.SOUNDCLOUD) return null
+        val permalink = link.url
+        // First try to resolve via /resolve endpoint to get the track id.
+        val trackId = try {
+            val encoded = URLEncoder.encode(permalink, "UTF-8")
+            val resolved = JSONObject(apiGet("resolve?url=$encoded"))
+            resolved.optLong("id", 0L).takeIf { it > 0 }?.toString()
+                ?: resolved.optString("id").takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+        if (trackId != null) {
+            resolveStreamForTrackId(trackId)?.let { return it }
+        }
+        // Fallback: if permalink itself contains an id-like path, try to extract via API again using search.
+        return null
+    }
+
+    private suspend fun resolveStreamForTrackId(trackId: String): String? {
+        // Attempt 1: legacy streams endpoint
+        try {
+            val streams = JSONObject(apiGet("tracks/$trackId/streams"))
+            streams.optString("http_mp3_128_url").takeIf { it.isNotBlank() }?.let { return it }
+            streams.optString("hls_mp3_128_url").takeIf { it.isNotBlank() }?.let { return it }
+        } catch (_: Exception) {
+            // Continue to transcodings path
+        }
+        // Attempt 2: media.transcodings
+        return try {
+            val track = JSONObject(apiGet("tracks/$trackId"))
+            val media = track.optJSONObject("media") ?: return null
+            val transcodings = media.optJSONArray("transcodings") ?: return null
+            var progressiveUrl: String? = null
+            var hlsUrl: String? = null
+            for (i in 0 until transcodings.length()) {
+                val t = transcodings.optJSONObject(i) ?: continue
+                val format = t.optJSONObject("format") ?: continue
+                val protocol = format.optString("protocol")
+                val mime = format.optString("mime_type")
+                val url = t.optString("url")
+                if (url.isBlank()) continue
+                if (protocol == "progressive" && mime.contains("mpeg")) {
+                    progressiveUrl = url
+                    break
+                }
+                if (hlsUrl == null && protocol == "hls") {
+                    hlsUrl = url
+                }
+            }
+            val chosen = progressiveUrl ?: hlsUrl ?: return null
+            // This transcoding url needs to be fetched with auth to get the actual stream url
+            val resolved = JSONObject(apiGet(chosen.removePrefix(\"$API_BASE/\")))
+            resolved.optString("url").takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun extractPlayableFromTrackJson(track: JSONObject): String? {
+        // Some search payloads already include stream_url or media transcodings with direct urls.
+        track.optString("stream_url").takeIf { it.isNotBlank() }?.let { return it }
+        track.optJSONObject("media")?.optJSONArray("transcodings")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val t = arr.optJSONObject(i) ?: continue
+                val format = t.optJSONObject("format")
+                if (format?.optString("protocol") == \"progressive\") {
+                    t.optString(\"url\").takeIf { it.isNotBlank() }?.let { return it }
+                }
+            }
+        }
+        return null
     }
 
     private suspend fun apiGet(path: String): String {

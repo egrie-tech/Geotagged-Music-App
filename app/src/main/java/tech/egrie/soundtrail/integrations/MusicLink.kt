@@ -6,6 +6,7 @@ import java.net.URLDecoder
 /** Only known song URLs are opened. Strip tracking parameters and refuse untrusted hosts. */
 enum class MusicProvider(val label: String) {
     SPOTIFY("Spotify"),
+    YOUTUBE("YouTube"),
     YOUTUBE_MUSIC("YouTube Music"),
     SOUNDCLOUD("SoundCloud"),
 
@@ -16,7 +17,15 @@ enum class MusicProvider(val label: String) {
 data class MusicLink(val provider: MusicProvider, val url: String)
 
 /** A search result from a connected provider, ready to be pinned. */
-data class TrackResult(val title: String, val artist: String, val url: String, val provider: MusicProvider)
+data class TrackResult(
+    val title: String,
+    val artist: String,
+    val url: String,
+    val provider: MusicProvider,
+    /** Optional direct playable URL (Spotify preview, SoundCloud stream, etc.). */
+    val playableUrl: String? = null,
+    val durationMs: Long? = null
+)
 
 object MusicLinkParser {
     private val spotifyId = Regex("[A-Za-z0-9]{22}")
@@ -91,21 +100,34 @@ object MusicLinkParser {
         }
 
         val videoId = when {
-            host == "music.youtube.com" || host == "www.youtube.com" ||
-                host == "youtube.com" || host == "m.youtube.com" -> {
+            host == "music.youtube.com" -> {
                 if (path != "/watch") return null
-                queryParameter(uri.rawQuery, "v")
+                queryParameter(uri.rawQuery, "v")?.let { it to MusicProvider.YOUTUBE_MUSIC }
             }
-            host == "youtu.be" -> path.removePrefix("/").takeIf { path.startsWith("/") }
+            host == "www.youtube.com" || host == "youtube.com" || host == "m.youtube.com" -> {
+                if (path != "/watch") return null
+                queryParameter(uri.rawQuery, "v")?.let { it to MusicProvider.YOUTUBE }
+            }
+            host == "youtu.be" -> {
+                path.removePrefix("/").takeIf { path.startsWith("/") }?.let { it to MusicProvider.YOUTUBE }
+            }
             else -> null
         }
-        return videoId?.takeIf(youtubeId::matches)?.let {
-            MusicLink(MusicProvider.YOUTUBE_MUSIC, "https://music.youtube.com/watch?v=$it")
+        return videoId?.let { (id, provider) ->
+            if (!youtubeId.matches(id)) return null
+            val canonical = when (provider) {
+                MusicProvider.YOUTUBE_MUSIC -> "https://music.youtube.com/watch?v=$id"
+                MusicProvider.YOUTUBE -> "https://www.youtube.com/watch?v=$id"
+                else -> return null
+            }
+            MusicLink(provider, canonical)
         }
     }
 
     fun youtubeVideoId(input: String): String? {
-        val link = parse(input)?.takeIf { it.provider == MusicProvider.YOUTUBE_MUSIC } ?: return null
+        val link = parse(input)?.takeIf {
+            it.provider == MusicProvider.YOUTUBE_MUSIC || it.provider == MusicProvider.YOUTUBE
+        } ?: return null
         val query = runCatching { URI(link.url).rawQuery }.getOrNull()
         return queryParameter(query, "v")?.takeIf(youtubeId::matches)
     }

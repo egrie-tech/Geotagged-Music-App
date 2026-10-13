@@ -79,7 +79,7 @@ class PlaybackService : Service() {
         player = JellyfinPlayer.shared(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Music playback", NotificationManager.IMPORTANCE_LOW)
-                .apply { description = "Streaming from your own Jellyfin server" }
+                .apply { description = "In-app music playback" }
         )
         session = MediaSession(this, "Soundtrail playback").apply {
             setFlags(
@@ -188,6 +188,14 @@ class PlaybackService : Service() {
     private fun buildNotification(state: NowPlaying?): Notification {
         val playing = state?.playing == true
         val buffering = state?.buffering == true
+        val subtitle = when (state?.provider) {
+            tech.egrie.soundtrail.integrations.MusicProvider.SPOTIFY -> "Spotify preview"
+            tech.egrie.soundtrail.integrations.MusicProvider.SOUNDCLOUD -> "SoundCloud"
+            tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE_MUSIC -> "YouTube Music"
+            tech.egrie.soundtrail.integrations.MusicProvider.YOUTUBE -> "YouTube"
+            tech.egrie.soundtrail.integrations.MusicProvider.JELLYFIN -> "Jellyfin"
+            null -> "Soundtrail"
+        }
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_soundtrail)
             .setContentTitle(state?.title ?: "Soundtrail")
@@ -196,7 +204,7 @@ class PlaybackService : Service() {
                     state == null -> "Nothing is playing"
                     state.error != null -> state.error
                     buffering -> "Buffering…"
-                    playing -> state.artist.ifBlank { "Streaming from your Jellyfin server" }
+                    playing -> state.artist.ifBlank { subtitle }
                     else -> "Paused" + state.artist.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
                 }
             )

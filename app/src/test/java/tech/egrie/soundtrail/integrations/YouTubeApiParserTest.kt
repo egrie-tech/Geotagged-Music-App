@@ -38,8 +38,8 @@ class YouTubeApiParserTest {
         assertEquals(1, results.size)
         assertEquals("One More Time", results.single().title)
         assertEquals("Daft Punk", results.single().artist)
-        assertEquals("https://music.youtube.com/watch?v=dQw4w9WgXcQ", results.single().url)
-        assertEquals(MusicProvider.YOUTUBE_MUSIC, results.single().provider)
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", results.single().url)
+        assertEquals(MusicProvider.YOUTUBE, results.single().provider)
     }
 
     @Test fun `skips deleted private and malformed playlist items`() {

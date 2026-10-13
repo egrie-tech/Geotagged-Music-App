@@ -79,6 +79,11 @@ class FileStore(private val context: Context) {
         }.getOrNull()
     }
 
+    fun fileFor(name: String): File? = runCatching {
+        val root = dir.canonicalFile
+        File(root, name).canonicalFile.takeIf { it.parentFile == root && it.isFile }
+    }.getOrNull()
+
     fun openUri(name: String): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(dir, name))
 
