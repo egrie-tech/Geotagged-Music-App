@@ -45,7 +45,8 @@ internal data class YouTubeAudioDownloadInfo(
 )
 
 /**
- * Client for a self-hosted account service. Authentication is separate from data encryption:
+ * Client for the Soundtrail sync account service (public server by default; self-hosted servers
+ * can be pointed to in the Connect tab). Authentication is separate from data encryption:
  * the account server authenticates email/password, but only a recovery key held by the user
  * can decrypt event payloads. Every network sync is a pull/merge/push/pull cycle over a
  * compactable event log with encrypted checkpoints; entity clocks and tombstones give
@@ -62,13 +63,26 @@ internal class CloudSyncService(
     private val secrets = SecretStore(context)
     private val journal = SyncJournal(context)
 
+    /** The public server Soundtrail connects to by default when no custom server has been set. */
     val serverUrl: String get() = settings.getString("server", "").orEmpty()
+
+    /**
+     * The server that API calls actually go to. Falls back to the official public server
+     * ([DEFAULT_SYNC_SERVER]) when the user hasn't entered a custom address, so a fresh install
+     * can sign up or sign in straight away. Users who self-host replace this in the Connect tab.
+     */
+    val effectiveServerUrl: String
+        get() = serverUrl.ifBlank { DEFAULT_SYNC_SERVER }
+
     val accountEmail: String get() = settings.getString("email", "").orEmpty()
     val accountId: String get() = settings.getString("account_id", "").orEmpty()
     val connected: Boolean get() = accountId.isNotBlank() && secrets.get(TOKEN_KEY).orEmpty().isNotBlank()
     val hasRecoveryKey: Boolean get() = secrets.get(RECOVERY_KEY).orEmpty().isNotBlank()
     val lastSyncAt: Long get() = settings.getLong("last_sync_at", 0L)
     val autoSyncEnabled: Boolean get() = settings.getBoolean("auto_sync_enabled", false)
+
+    /** True when the user has entered a custom self-hosted URL instead of the public default. */
+    val isUsingCustomServer: Boolean get() = serverUrl.isNotBlank() && serverUrl.trimEnd('/') != DEFAULT_SYNC_SERVER.trimEnd('/')
 
     fun setAutoSyncEnabled(enabled: Boolean) {
         settings.edit().putBoolean("auto_sync_enabled", enabled).apply()
@@ -198,8 +212,9 @@ internal class CloudSyncService(
     }
 
     /**
-     * Requests an audio-only public YouTube extraction from this self-hosted server.
-     * The app sends no provider token or session cookie; the user must explicitly confirm rights.
+     * Requests an audio-only public YouTube extraction from the configured sync server (the
+     * public default or a self-hosted server). The app sends no provider token or session
+     * cookie; the user must explicitly confirm rights.
      */
     suspend fun downloadYouTubeAudio(
         videoId: String,
@@ -209,9 +224,10 @@ internal class CloudSyncService(
     ): YouTubeAudioDownloadInfo = withContext(Dispatchers.IO) {
         if (!userConfirmedRights) throw CloudSyncException("Confirm you own or have permission to download this audio.")
         if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) throw CloudSyncException("That YouTube video link is not valid.")
-        if (!connected) throw CloudSyncException("Connect your self-hosted server before extracting YouTube audio.")
+        if (!connected) throw CloudSyncException("Connect your sync server before extracting YouTube audio.")
         val token = secrets.get(TOKEN_KEY).orEmpty()
-        val connection = (URL(serverUrl.trimEnd('/') + "/v1/youtube/audio").openConnection() as HttpURLConnection).apply {
+        val baseServer = effectiveServerUrl.trimEnd('/')
+        val connection = (URL(baseServer + "/v1/youtube/audio").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             instanceFollowRedirects = false
             connectTimeout = 15_000
@@ -231,12 +247,12 @@ internal class CloudSyncService(
             if (code !in 200..299) {
                 val message = readErrorBody(connection)
                 val detail = runCatching { JSONObject(message).optString("error") }.getOrNull().orEmpty()
-                if (code == 401) throw CloudSyncException("Sign in to your self-hosted server before downloading YouTube audio.")
-                throw CloudSyncException(detail.ifBlank { "The self-hosted audio extractor returned HTTP $code." })
+                if (code == 401) throw CloudSyncException("Sign in to your sync server before downloading YouTube audio.")
+                throw CloudSyncException(detail.ifBlank { "The sync server audio extractor returned HTTP $code." })
             }
             val mediaType = connection.contentType?.substringBefore(';')?.trim()?.lowercase()
             if (mediaType == null || !mediaType.startsWith("audio/")) {
-                throw CloudSyncException("The self-hosted server returned something other than an audio file.")
+                throw CloudSyncException("The sync server returned something other than an audio file.")
             }
             val total = connection.contentLengthLong
             if (total > MAX_YOUTUBE_AUDIO_BYTES) {
@@ -293,9 +309,9 @@ internal class CloudSyncService(
 
     /** Revokes this session best-effort and removes credentials/key, but keeps local data. */
     suspend fun disconnect() {
-        val base = serverUrl
+        val base = effectiveServerUrl
         val token = secrets.get(TOKEN_KEY).orEmpty()
-        if (base.isNotBlank() && token.isNotBlank()) {
+        if (token.isNotBlank()) {
             runCatching { api(base, "/v1/sessions/current", method = "DELETE", token = token) }
         }
         secrets.remove(TOKEN_KEY)
@@ -305,7 +321,7 @@ internal class CloudSyncService(
     /** Deletes this account and its remote encrypted history; device library remains untouched. */
     suspend fun deleteAccount() {
         if (!connected) throw CloudSyncException("Sign in to the sync account before deleting it.")
-        api(serverUrl, "/v1/account/current", method = "DELETE", token = secrets.get(TOKEN_KEY).orEmpty())
+        api(effectiveServerUrl, "/v1/account/current", method = "DELETE", token = secrets.get(TOKEN_KEY).orEmpty())
         secrets.remove(TOKEN_KEY)
         secrets.remove(RECOVERY_KEY)
         journal.resetForAccountChange()
@@ -370,7 +386,7 @@ internal class CloudSyncService(
                 throw CloudSyncException("Sync made partial progress. Tap Sync now again to continue through this large history.")
             }
             val response = api(
-                serverUrl,
+                effectiveServerUrl,
                 "/v1/events?after=$after&limit=$PAGE_SIZE",
                 token = secrets.get(TOKEN_KEY).orEmpty()
             )
@@ -444,7 +460,7 @@ internal class CloudSyncService(
             throughCursor = throughCursor
         )
         val response = api(
-            serverUrl,
+            effectiveServerUrl,
             "/v1/snapshots",
             method = "POST",
             body = JSONObject().put("snapshot", snapshot.toJson()).toString(),
@@ -463,7 +479,7 @@ internal class CloudSyncService(
                 }
             }
             val response = api(
-                serverUrl,
+                effectiveServerUrl,
                 "/v1/events",
                 method = "POST",
                 body = JSONObject().put("events", events).toString(),
@@ -532,7 +548,15 @@ internal class CloudSyncService(
     }
 
     private fun normalizeServer(raw: String): String {
-        val value = raw.trim().trimEnd('/')
+        val trimmed = raw.trim().trimEnd('/')
+        // Allow users to type just a hostname or IP (e.g. "soundtrail.duckdns.org" or
+        // "192.168.1.20:8080") and auto-prefix HTTPS, so the default public server and
+        // self-hosted domains work without typing the scheme manually.
+        val value = when {
+            trimmed.isBlank() -> DEFAULT_SYNC_SERVER
+            !trimmed.contains("://") -> "https://$trimmed"
+            else -> trimmed
+        }
         val uri = runCatching { URI(value) }.getOrNull()
             ?: throw CloudSyncException("Enter the HTTPS address of your sync server.")
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank() ||
@@ -555,6 +579,9 @@ internal class CloudSyncService(
     )
 
     companion object {
+        /** The official public Soundtrail sync server. Used when no custom server is configured. */
+        const val DEFAULT_SYNC_SERVER = "https://soundtrail.duckdns.org"
+
         private const val TOKEN_KEY = "cloud_sync_token"
         private const val RECOVERY_KEY = "cloud_sync_recovery_key"
         private const val PAGE_SIZE = 20

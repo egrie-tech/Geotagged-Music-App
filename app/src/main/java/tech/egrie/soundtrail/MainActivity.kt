@@ -212,6 +212,13 @@ class MainActivity : ComponentActivity() {
                     onOpenJellyfin = { if (!apps.openWeb(model.jellyfinServerUrl())) model.notify("No browser found.") },
                     onConnectYouTubeData = ::connectYouTubeData,
                     onDisconnectYouTubeData = model::disconnectYouTubeData,
+                    onOpenYouTubeSetup = {
+                        if (!apps.openWeb("https://console.cloud.google.com/apis/credentials")) {
+                            model.notify("No browser found.")
+                        }
+                    },
+                    onImportYouTubePlaylists = model::importYouTubePlaylists,
+                    onSetYouTubeAutoImport = model::setYouTubeAutoImport,
                     backupBusy = state.backupBusy,
                     onExportBackup = {
                         val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
@@ -240,11 +247,6 @@ class MainActivity : ComponentActivity() {
                     onSetCloudSyncAutoEnabled = model::setCloudSyncAutoEnabled,
                     onDisconnectCloudSync = model::disconnectCloudSync,
                     onDeleteCloudSyncAccount = model::deleteCloudSyncAccount,
-                    onOpenYouTubeSetup = {
-                        if (!apps.openWeb("https://console.cloud.google.com/apis/credentials")) {
-                            model.notify("No browser found.")
-                        }
-                    },
                     onTogglePlayback = model::togglePlayback,
                     onStopPlayback = model::stopPlayback,
                     onPlay = ::play,
