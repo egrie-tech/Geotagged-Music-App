@@ -135,6 +135,18 @@ class AutomationStore(context: Context) {
 
     fun remove(id: String) = write(all().filterNot { it.id == id })
 
+    /**
+     * Restores rules from a backup; ids already saved are kept as they are, so importing
+     * never rewrites a locally edited rule. Returns how many were added.
+     */
+    fun merge(incoming: List<AutomationRule>): Int {
+        val have = all()
+        val ids = have.mapTo(HashSet()) { it.id }
+        val fresh = incoming.filterNot { it.id in ids }
+        if (fresh.isNotEmpty()) write(have + fresh)
+        return fresh.size
+    }
+
     fun lastFiredAt(id: String): Long? = prefs.getLong("fired:$id", -1L).takeIf { it >= 0 }
 
     fun markFired(id: String, atMs: Long) {

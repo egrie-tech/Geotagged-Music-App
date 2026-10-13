@@ -7,6 +7,8 @@
     <!-- Only for the opt-in automation watch: a visible foreground service, never hidden tracking. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Background Jellyfin streaming: the playback notification's foreground service type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
 
@@ -64,6 +66,12 @@
             android:name=".automation.LocationWatchService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Jellyfin streaming continues outside the app under a MediaStyle notification. -->
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Shares the user's imported audio files read-only with their chosen player. -->
         <provider

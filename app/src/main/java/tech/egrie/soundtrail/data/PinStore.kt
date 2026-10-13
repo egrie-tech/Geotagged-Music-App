@@ -37,6 +37,18 @@ class PinStore(context: Context) {
 
     fun remove(id: String) = save(all().filterNot { it.id == id })
 
+    /**
+     * Restores pins from a backup: ids already on this device are kept as they are, so
+     * importing is additive and can never overwrite a local edit. Returns how many were added.
+     */
+    fun merge(incoming: List<MusicPin>): Int {
+        val have = all()
+        val ids = have.mapTo(HashSet()) { it.id }
+        val fresh = incoming.filterNot { it.id in ids }
+        if (fresh.isNotEmpty()) save(have + fresh)
+        return fresh.size
+    }
+
     private fun save(pins: List<MusicPin>) {
         val array = JSONArray()
         pins.forEach { pin ->

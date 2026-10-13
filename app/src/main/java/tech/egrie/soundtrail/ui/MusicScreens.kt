@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Dns
@@ -385,7 +386,8 @@ internal fun ConnectionsScreen(
     onConnectJellyfin: (String, String, String) -> Unit, onDisconnectJellyfin: () -> Unit,
     onOpenJellyfin: () -> Unit,
     onConnectYouTubeData: () -> Unit, onDisconnectYouTubeData: () -> Unit,
-    onOpenYouTubeSetup: () -> Unit
+    onOpenYouTubeSetup: () -> Unit,
+    backupBusy: Boolean, onExportBackup: () -> Unit, onImportBackup: () -> Unit
 ) {
     var clientId by rememberSaveable(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
     var soundcloudId by rememberSaveable(state.soundcloudClientId) { mutableStateOf(state.soundcloudClientId) }
@@ -668,12 +670,47 @@ internal fun ConnectionsScreen(
         Spacer(Modifier.height(13.dp))
         SurfaceCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(43.dp).background(Palette.primary.copy(alpha = .15f), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Backup, null, tint = Palette.primary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Backup & restore", style = MaterialTheme.typography.titleLarge)
+                    Text(if (backupBusy) "Working…" else "Everything local, in one file",
+                        color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (backupBusy) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+            Spacer(Modifier.height(13.dp))
+            Text("Write every pin, playlist, and automation to a JSON file you own — or read " +
+                "one back on this or another device. The file goes only where you send it; " +
+                "Soundtrail uploads nothing.",
+                color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(13.dp))
+            PrimaryButton(if (backupBusy) "Working…" else "Export backup",
+                onExportBackup, Modifier.fillMaxWidth(), enabled = !backupBusy)
+            Spacer(Modifier.height(10.dp))
+            PrimaryButton("Import backup",
+                onImportBackup, Modifier.fillMaxWidth(), enabled = !backupBusy)
+            Spacer(Modifier.height(9.dp))
+            Text("A backup carries pins, playlists with their song links, and automations. " +
+                "Account logins and imported audio files stay on this device — reconnect " +
+                "accounts and re-attach audio after a restore. Importing keeps everything " +
+                "already here and only adds what the file has.",
+                color = Palette.muted, style = MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.height(13.dp))
+        SurfaceCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Lock, null, tint = Palette.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(9.dp))
                 Text("Private by design", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(7.dp))
-            Text("Location is requested only when you tap Locate. Pins stay on your phone. Spotify, SoundCloud, Jellyfin, and the YouTube account label are protected with Android Keystore. YouTube OAuth tokens are requested from Google services when needed and are not stored by Soundtrail. No Soundtrail backend, scraping, or background tracking.",
+            Text("Location is requested only when you tap Locate. Pins stay on your phone. Spotify, SoundCloud, Jellyfin, and the YouTube account label are protected with Android Keystore. YouTube OAuth tokens are requested from Google services when needed and are not stored by Soundtrail. The map view fetches only public map tiles for the area on screen. No Soundtrail backend, scraping, or background tracking.",
                 color = Palette.secondary, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(27.dp))

@@ -37,6 +37,9 @@ class FileStore(private val context: Context) {
         runCatching { File(dir, name).delete() }
     }
 
+    /** True when a previously imported audio file is still present — a backup's file names mean nothing on another device. */
+    fun exists(name: String): Boolean = runCatching { File(dir, name).isFile }.getOrDefault(false)
+
     private fun extensionFor(uri: Uri): String {
         val type = runCatching { context.contentResolver.getType(uri) }.getOrNull()
         when (type) {

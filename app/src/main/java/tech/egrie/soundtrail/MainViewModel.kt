@@ -16,6 +16,8 @@ import kotlinx.coroutines.withContext
 import tech.egrie.soundtrail.automation.AutomationRule
 import tech.egrie.soundtrail.automation.AutomationStore
 import tech.egrie.soundtrail.automation.LocationWatchService
+import tech.egrie.soundtrail.data.BackupException
+import tech.egrie.soundtrail.data.BackupFormat
 import tech.egrie.soundtrail.data.FileStore
 import tech.egrie.soundtrail.data.GeoPoint
 import tech.egrie.soundtrail.data.MusicPin
@@ -73,6 +75,7 @@ internal data class AppState(
     val playlists: List<tech.egrie.soundtrail.data.Playlist> = emptyList(),
     val automations: List<AutomationRule> = emptyList(),
     val autoSearchYoutube: Boolean = true,
+    val backupBusy: Boolean = false,
     val watchStatus: tech.egrie.soundtrail.automation.WatchStatus = tech.egrie.soundtrail.automation.WatchStatus(),
     val spotifyAppInstalled: Boolean = false,
     val soundcloudAppInstalled: Boolean = false,
@@ -102,8 +105,11 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     private val locationReader = DeviceLocation(application)
     private val apps = DeviceApps(application)
 
-    /** Streams the user's own Jellyfin server inside the app; the UI watches its state. */
-    val player = JellyfinPlayer(application)
+    /**
+     * The app's one player, shared with [tech.egrie.soundtrail.playback.PlaybackService] so
+     * the in-app bar and the playback notification always drive the same stream.
+     */
+    val player = JellyfinPlayer.shared(application)
 
     private val _state = MutableStateFlow(
         AppState(
@@ -568,6 +574,116 @@ internal class MainViewModel(application: Application) : AndroidViewModel(applic
     }
 
     private val watchRunning: Boolean get() = LocationWatchService.status.value.running
+
+    // ----- Backup: export and import of everything local -----
+
+    /**
+     * Writes every pin, playlist, and automation to the file the user just picked.
+     * The file goes wherever the system file picker sends it; nothing is uploaded.
+     */
+    fun exportBackup(uri: Uri) {
+        if (_state.value.backupBusy) return
+        _state.update { it.copy(backupBusy = true) }
+        viewModelScope.launch {
+            try {
+                val currentPins = pins.all()
+                val currentPlaylists = playlists.all()
+                val currentRules = automations.all()
+                val text = withContext(Dispatchers.IO) {
+                    BackupFormat.export(currentPins, currentPlaylists, currentRules)
+                }
+                val written = withContext(Dispatchers.IO) { writeText(uri, text) }
+                if (written) {
+                    notify(
+                        "Backup saved — ${counted(currentPins.size, "pin")}, " +
+                            "${counted(currentPlaylists.size, "playlist")}, " +
+                            "${counted(currentRules.size, "automation")}."
+                    )
+                } else {
+                    notify("Couldn't write that file. Try a different location.")
+                }
+            } catch (e: Exception) {
+                notify(e.message ?: "Couldn't export a backup.")
+            } finally {
+                _state.update { it.copy(backupBusy = false) }
+            }
+        }
+    }
+
+    /**
+     * Reads a backup and merges it into what is already here. Ids that exist are kept
+     * locally, so importing twice (or importing an older file) never loses an edit.
+     * Audio files are not carried by backups; a reference to a file this device does not
+     * have is dropped rather than imported broken.
+     */
+    fun importBackup(uri: Uri) {
+        if (_state.value.backupBusy) return
+        _state.update { it.copy(backupBusy = true) }
+        viewModelScope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) { readText(uri) }
+                    ?: throw BackupException("Couldn't read that file.")
+                val brought = withContext(Dispatchers.IO) { BackupFormat.parse(text) }
+                val restored = brought.copy(
+                    playlists = brought.playlists.map { playlist ->
+                        playlist.copy(items = playlist.items.map { item ->
+                            item.copy(localFile = item.localFile?.takeIf(files::exists))
+                        })
+                    }
+                )
+                val addedPins = pins.merge(restored.pins)
+                val (addedPlaylists, addedSongs) = playlists.merge(restored.playlists)
+                val addedRules = automations.merge(restored.automations)
+                _state.update {
+                    it.copy(
+                        pins = pins.all(),
+                        playlists = playlists.all(),
+                        automations = automations.all()
+                    )
+                }
+                val total = addedPins + addedPlaylists + addedSongs + addedRules
+                if (total == 0) {
+                    notify("Nothing new in that backup — everything it holds is already on this device.")
+                } else {
+                    notify(
+                        "Imported ${counted(addedPins, "new pin")}, ${counted(addedPlaylists, "playlist")}, " +
+                            "${counted(addedSongs, "song")}, and ${counted(addedRules, "automation")}. " +
+                            "Items already on this device were kept."
+                    )
+                }
+            } catch (e: BackupException) {
+                notify(e.message ?: "That file is not a Soundtrail backup.")
+            } catch (e: Exception) {
+                notify("Couldn't import that backup.")
+            } finally {
+                _state.update { it.copy(backupBusy = false) }
+            }
+        }
+    }
+
+    private fun counted(n: Int, word: String) = "$n $word" + if (n == 1) "" else "s"
+
+    private fun writeText(uri: Uri, text: String): Boolean {
+        val resolver = getApplication<Application>().contentResolver
+        return runCatching {
+            // "wt" truncates a pre-existing file; not every provider accepts a mode, so fall back.
+            val stream = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
+                ?: resolver.openOutputStream(uri)
+                ?: error("No writable stream for that file.")
+            stream.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+        }.isSuccess
+    }
+
+    private fun readText(uri: Uri): String? {
+        val resolver = getApplication<Application>().contentResolver
+        val bytes = runCatching {
+            resolver.openInputStream(uri)?.use { stream -> stream.readBytes() }
+        }.getOrNull() ?: return null
+        if (bytes.size > BackupFormat.MAX_CHARS * 4) {
+            throw BackupException("That file is too large to be a Soundtrail backup.")
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
 
     fun addPin(input: PinInput): Boolean {
         val link = MusicLinkParser.fromText(input.url)
