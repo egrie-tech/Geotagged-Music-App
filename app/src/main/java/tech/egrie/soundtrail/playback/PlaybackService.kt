@@ -10,8 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.media.MediaMetadata
-import android.media.MediaSession
+import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -102,7 +103,7 @@ class PlaybackService : Service() {
         runCatching {
             ContextCompat.registerReceiver(
                 this, noisyReceiver,
-                IntentFilter(Intent.ACTION_AUDIO_BECOMING_NOISY),
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
         }
