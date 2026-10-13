@@ -22,6 +22,14 @@ class MusicLinkParserTest {
         assertEquals(expected, MusicLinkParser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
     }
 
+    @Test fun `youtube video id extraction accepts only canonical supported song links`() {
+        assertEquals("dQw4w9WgXcQ", MusicLinkParser.youtubeVideoId(
+            "https://youtu.be/dQw4w9WgXcQ?si=tracking"
+        ))
+        assertNull(MusicLinkParser.youtubeVideoId("https://music.youtube.com/playlist?list=PL123"))
+        assertNull(MusicLinkParser.youtubeVideoId("https://example.invalid/watch?v=dQw4w9WgXcQ"))
+    }
+
     @Test fun `soundcloud permalinks canonicalize and drop tracking parameters`() {
         val expected = MusicLink(MusicProvider.SOUNDCLOUD, "https://soundcloud.com/matas/hobnotropic")
         assertEquals(expected, MusicLinkParser.parse("https://soundcloud.com/matas/hobnotropic"))

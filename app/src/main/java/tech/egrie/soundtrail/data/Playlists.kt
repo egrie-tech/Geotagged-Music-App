@@ -63,7 +63,7 @@ internal fun mergePlaylists(existing: List<Playlist>, incoming: List<Playlist>):
     return PlaylistMerge(lists, addedPlaylists, addedItems)
 }
 
-/** Private on-device song lists for automation triggers; deliberately no account sync. */
+/** Private playlist store; optional sync sends only encrypted metadata, never audio files. */
 class PlaylistStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_playlists", Context.MODE_PRIVATE)
 
@@ -105,6 +105,9 @@ class PlaylistStore(context: Context) {
         val lists = all().filterNot { it.id == playlist.id } + playlist
         write(lists.sortedBy { it.createdAt })
     }
+
+    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    fun replaceAll(playlists: List<Playlist>) = write(playlists.sortedBy { it.createdAt })
 
     fun remove(id: String) = write(all().filterNot { it.id == id })
 

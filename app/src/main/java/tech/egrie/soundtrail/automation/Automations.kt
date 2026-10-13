@@ -97,7 +97,7 @@ object AutomationEngine {
     }
 }
 
-/** Persists rules and last-fired timestamps in private storage; nothing leaves the device. */
+/** Persists rules and local last-fired timestamps; optional sync sends rules only as ciphertext. */
 class AutomationStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_automations", Context.MODE_PRIVATE)
 
@@ -132,6 +132,9 @@ class AutomationStore(context: Context) {
         val rules = all().filterNot { it.id == rule.id } + rule
         write(rules)
     }
+
+    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    fun replaceAll(rules: List<AutomationRule>) = write(rules)
 
     fun remove(id: String) = write(all().filterNot { it.id == id })
 

@@ -15,6 +15,11 @@ local.properties
 # local and CI, shares that one key so an APK installs as an update over the last one.
 # It holds the standard public debug credentials (androiddebugkey / android).
 
+# Python / self-hosted server
+__pycache__/
+*.py[cod]
+.venv/
+
 # OS / editor
 .DS_Store
 *.swp

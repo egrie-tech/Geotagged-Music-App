@@ -1,17 +1,31 @@
 package tech.egrie.soundtrail.integrations
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLDecoder
 import java.util.UUID
 
 /**
  * The client half of a Jellyfin connection: sign in against the user's own server, search its
- * music library, and resolve stream URLs for playback.
+ * music library, resolve streams for playback, and copy an item the signed-in account may download.
  *
  * Only a username and a password are ever sent, and only once, to the address the user typed.
  * The password is never stored; the server keeps an access token, which lives in
  * Android Keystore-encrypted storage on this device. Everything here is read-only — Soundtrail
  * never writes to, renames, or deletes anything in the user's library.
  */
+data class JellyfinDownloadInfo(
+    val contentType: String?,
+    val filename: String?,
+    val bytes: Long
+)
+
 class JellyfinService(context: Context) {
     private val settings = context.getSharedPreferences("soundtrail_settings", Context.MODE_PRIVATE)
     private val secrets = SecretStore(context)
@@ -103,6 +117,109 @@ class JellyfinService(context: Context) {
         }
     }
 
+    /**
+     * Downloads the selected item from the user's own Jellyfin server using its official
+     * authenticated item-download route. Server permissions remain authoritative; Soundtrail
+     * cannot bypass Jellyfin's access checks. The response is streamed to a private temp file
+     * and capped so a malformed endpoint cannot fill app storage without limit.
+     */
+    suspend fun downloadAudio(
+        rawItemId: String,
+        target: File,
+        onProgress: (received: Long, total: Long) -> Unit = { _, _ -> }
+    ): JellyfinDownloadInfo = withContext(Dispatchers.IO) {
+        if (!connected) throw JellyfinException("Connect your Jellyfin server before downloading.")
+        val path = JellyfinApi.downloadPath(rawItemId)
+            ?: throw JellyfinException("That Jellyfin item link is not valid.")
+        val connection = try {
+            (URL(serverUrl + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                connectTimeout = 15_000
+                readTimeout = 60_000
+                setRequestProperty("Accept", "audio/*, application/octet-stream;q=0.9, */*;q=0.5")
+                setRequestProperty("Cache-Control", "no-store")
+                setRequestProperty("Authorization", JellyfinApi.authorizationHeader(deviceId, token))
+            }
+        } catch (_: Exception) {
+            throw JellyfinException("Could not connect to your Jellyfin server.")
+        }
+        try {
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val body = readErrorBody(connection)
+                if (code == 401) {
+                    disconnect()
+                    throw JellyfinException("Your Jellyfin session ended. Connect again on the Connect tab.")
+                }
+                if (code == 403) throw JellyfinException("Jellyfin does not allow this account to download that item.")
+                val detail = runCatching { HttpResponse(code, body).detail() }.getOrDefault("")
+                throw JellyfinException(detail.ifBlank { "Jellyfin could not download this item (HTTP $code)." })
+            }
+            val mediaType = connection.contentType?.substringBefore(';')?.trim()?.lowercase()
+            if (mediaType != null && (mediaType.startsWith("text/") || mediaType.contains("json"))) {
+                throw JellyfinException("Jellyfin returned a web page instead of an audio file. Check the server address.")
+            }
+            if (mediaType?.startsWith("video/") == true) {
+                throw JellyfinException("Only Jellyfin audio tracks can be downloaded for offline playback.")
+            }
+            val total = connection.contentLengthLong
+            if (total > MAX_OFFLINE_DOWNLOAD_BYTES) {
+                throw JellyfinException("That track is larger than the 250 MiB offline-download limit.")
+            }
+            target.parentFile?.mkdirs()
+            var received = 0L
+            connection.inputStream.use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        received += count
+                        if (received > MAX_OFFLINE_DOWNLOAD_BYTES) {
+                            throw JellyfinException("That track is larger than the 250 MiB offline-download limit.")
+                        }
+                        output.write(buffer, 0, count)
+                        onProgress(received, total)
+                    }
+                }
+            }
+            if (received == 0L) throw JellyfinException("Jellyfin returned an empty audio file.")
+            JellyfinDownloadInfo(
+                contentType = mediaType,
+                filename = downloadFilename(connection.getHeaderField("Content-Disposition")),
+                bytes = received
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun readErrorBody(connection: HttpURLConnection): String = runCatching {
+        val stream = connection.errorStream ?: return@runCatching ""
+        stream.bufferedReader().use { reader ->
+            val result = StringBuilder()
+            val buffer = CharArray(1_024)
+            while (result.length < MAX_ERROR_BODY_CHARS) {
+                val count = reader.read(buffer, 0, minOf(buffer.size, MAX_ERROR_BODY_CHARS - result.length))
+                if (count < 0) break
+                result.append(buffer, 0, count)
+            }
+            result.toString()
+        }
+    }.getOrDefault("")
+
+    private fun downloadFilename(disposition: String?): String? {
+        val raw = disposition?.let {
+            Regex("filename\\*?=(?:UTF-8''|\\\"?)([^\\\";]+)", RegexOption.IGNORE_CASE)
+                .find(it)?.groupValues?.getOrNull(1)
+        }?.trim() ?: return null
+        return runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+            .substringAfterLast('/').substringAfterLast(92.toChar())
+            .filterNot(Char::isISOControl).take(160).takeIf(String::isNotBlank)
+    }
+
     /** Stream URLs plus the header the player must send, or null when nothing is connected. */
     fun playback(rawItemId: String): JellyfinPlayback? {
         if (!connected) return null
@@ -139,5 +256,10 @@ class JellyfinService(context: Context) {
             else -> "Your Jellyfin server answered with HTTP $code. Try again shortly."
         }
         return JellyfinException(detail.takeIf { it.isNotBlank() && code != 403 } ?: fallback)
+    }
+
+    private companion object {
+        const val MAX_ERROR_BODY_CHARS = 4_000
+        const val MAX_OFFLINE_DOWNLOAD_BYTES = 250L * 1024L * 1024L
     }
 }

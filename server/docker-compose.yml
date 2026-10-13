@@ -1,0 +1,18 @@
+services:
+  soundtrail-sync:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      SOUNDTRAIL_DB: /data/soundtrail.sqlite3
+    volumes:
+      - soundtrail-sync-data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    expose:
+      - "8080"
+    # The loopback binding is for a host-installed HTTPS proxy only. For a proxy container,
+    # remove `ports` and attach both containers to a private Docker network.
+
+volumes:
+  soundtrail-sync-data:

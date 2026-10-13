@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import tech.egrie.soundtrail.integrations.MusicLinkParser
 
-/** Private on-device collection; deliberately no account sync or background location tracking. */
+/** Private pin store; optional cloud sync exports only encrypted, user-authorized snapshots. */
 class PinStore(context: Context) {
     private val prefs = context.getSharedPreferences("soundtrail_pins", Context.MODE_PRIVATE)
 
@@ -34,6 +34,12 @@ class PinStore(context: Context) {
     }
 
     fun add(pin: MusicPin) = save(all() + pin)
+
+    /** Replace/insert one pin by stable id (used when applying a remote sync winner). */
+    fun upsert(pin: MusicPin) = save(all().filterNot { it.id == pin.id } + pin)
+
+    /** Apply a fully merged sync snapshot without manufacturing new journal events. */
+    fun replaceAll(pins: List<MusicPin>) = save(pins)
 
     fun remove(id: String) = save(all().filterNot { it.id == id })
 

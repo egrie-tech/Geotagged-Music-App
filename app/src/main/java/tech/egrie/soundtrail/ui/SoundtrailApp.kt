@@ -113,6 +113,16 @@ internal fun SoundtrailApp(
     backupBusy: Boolean,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    onCreateCloudSyncAccount: (server: String, email: String, password: String) -> Unit,
+    onSignInCloudSync: (server: String, email: String, password: String) -> Unit,
+    onUnlockCloudSync: (String) -> Unit,
+    onSyncCloudData: () -> Unit,
+    onShowCloudRecoveryKey: () -> Unit,
+    onForgetCloudRecoveryKey: () -> Unit,
+    onDismissCloudRecoveryKey: () -> Unit,
+    onSetCloudSyncAutoEnabled: (Boolean) -> Unit,
+    onDisconnectCloudSync: () -> Unit,
+    onDeleteCloudSyncAccount: () -> Unit,
     onTogglePlayback: () -> Unit,
     onStopPlayback: () -> Unit,
     onPlay: (MusicPin) -> Unit,
@@ -225,7 +235,11 @@ internal fun SoundtrailApp(
                     onOpenDashboard, onOpenMicroG, onOpenSoundcloudApps,
                     onConnectJellyfin, onDisconnectJellyfin, onOpenJellyfin,
                     onConnectYouTubeData, onDisconnectYouTubeData, onOpenYouTubeSetup,
-                    backupBusy, onExportBackup, onImportBackup
+                    backupBusy, onExportBackup, onImportBackup,
+                    state.syncBusy, onCreateCloudSyncAccount, onSignInCloudSync,
+                    onUnlockCloudSync, onSyncCloudData, onShowCloudRecoveryKey,
+                    onForgetCloudRecoveryKey, onDismissCloudRecoveryKey, onSetCloudSyncAutoEnabled,
+                    onDisconnectCloudSync, onDeleteCloudSyncAccount
                 )
             }
         }

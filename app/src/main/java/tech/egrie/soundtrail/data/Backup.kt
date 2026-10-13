@@ -89,7 +89,7 @@ internal object BackupFormat {
 
     // ----- Pins -----
 
-    private fun pinJson(pin: MusicPin): JSONObject = JSONObject().apply {
+    internal fun pinJson(pin: MusicPin): JSONObject = JSONObject().apply {
         put("id", pin.id)
         put("title", pin.title)
         put("artist", pin.artist)
@@ -101,7 +101,7 @@ internal object BackupFormat {
         put("createdAt", pin.createdAt)
     }
 
-    private fun parsePin(entry: JSONObject): MusicPin? {
+    internal fun parsePin(entry: JSONObject): MusicPin? {
         val link = MusicLinkParser.parse(entry.getString("url")) ?: return null
         val point = GeoPoint(entry.getDouble("lat"), entry.getDouble("lon"))
         if (!point.isValid()) return null
@@ -165,7 +165,7 @@ internal object BackupFormat {
 
     // ----- Automations -----
 
-    private fun ruleJson(rule: AutomationRule): JSONObject = JSONObject().apply {
+    internal fun ruleJson(rule: AutomationRule): JSONObject = JSONObject().apply {
         put("id", rule.id)
         put("name", rule.name)
         put("playlistId", rule.playlistId)
@@ -178,7 +178,7 @@ internal object BackupFormat {
         put("cooldown", rule.cooldownMinutes)
     }
 
-    private fun parseRule(entry: JSONObject): AutomationRule? {
+    internal fun parseRule(entry: JSONObject): AutomationRule? {
         val place = entry.optJSONObject("place")?.let {
             GeoPoint(it.getDouble("lat"), it.getDouble("lon"))
         }?.takeIf(GeoPoint::isValid)

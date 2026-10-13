@@ -25,13 +25,15 @@ internal suspend fun httpRequest(
     method: String = "GET",
     body: String? = null,
     authorization: String? = null,
-    contentType: String? = null
+    contentType: String? = null,
+    connectTimeoutMs: Int = 10_000,
+    readTimeoutMs: Int = 10_000
 ): HttpResponse = withContext(Dispatchers.IO) {
     val connection = (URL(address).openConnection() as HttpURLConnection).apply {
         requestMethod = method
         instanceFollowRedirects = false
-        connectTimeout = 10_000
-        readTimeout = 10_000
+        connectTimeout = connectTimeoutMs
+        readTimeout = readTimeoutMs
         setRequestProperty("Accept", "application/json")
         setRequestProperty("Cache-Control", "no-store")
         authorization?.let { setRequestProperty("Authorization", it) }
